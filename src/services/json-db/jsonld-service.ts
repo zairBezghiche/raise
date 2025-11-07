@@ -38,7 +38,7 @@ export class JsonLdService {
     };
   }
 
-  compactDocument(document: any, contextName: string): any {
+  compactDocument(document: any, _contextName: string): any {
     // TODO: Implémenter la compaction JSON-LD
     const { '@context': _, ...data } = document;
     return data;

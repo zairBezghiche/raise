@@ -2,7 +2,7 @@
  * Service de gestion des collections
  */
 
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface Collection {
   name: string;

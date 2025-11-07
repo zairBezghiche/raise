@@ -1,5 +1,6 @@
 {
   "git.enabled": true,
   "git.path": "/usr/bin/git",
-  "git.autoRepositoryDetection": true
+  "git.autoRepositoryDetection": true,
+  "typescript.tsdk": "node_modules/typescript/lib"
 }

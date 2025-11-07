@@ -1,6 +1,6 @@
 stages: [lint, build, test]
 
-# Cache global simple (pas de key.files)
+# Cache global simple
 cache:
   key: "deps-${CI_JOB_NAME}-${CI_COMMIT_REF_SLUG}"
   paths:
@@ -20,53 +20,95 @@ rust:lint:
   stage: lint
   image: rust:1
   rules:
-    - exists:
-        - Cargo.toml
-        - src-tauri/Cargo.toml
-  script:
-    - |
-      if [ -f Cargo.toml ]; then MANIFEST="Cargo.toml"; \
-      elif [ -f src-tauri/Cargo.toml ]; then MANIFEST="src-tauri/Cargo.toml"; \
-      else echo "No Cargo.toml found"; exit 0; fi
-    - rustup component add rustfmt clippy || true
-    - cargo fmt --manifest-path "$MANIFEST" -- --check || true
-    - cargo clippy --manifest-path "$MANIFEST" -- -D warnings || true
+    - exists: [Cargo.toml, src-tauri/Cargo.toml]
+  script: |
+    MANIFEST=""
+    if [ -f Cargo.toml ]; then MANIFEST="Cargo.toml"; elif [ -f src-tauri/Cargo.toml ]; then MANIFEST="src-tauri/Cargo.toml"; else exit 0; fi
+    rustup component add rustfmt clippy || true
+    cargo fmt --manifest-path "$MANIFEST" -- --check || true
+    cargo clippy --manifest-path "$MANIFEST" -- -D warnings || true
   allow_failure: true
 
-# Build Rust "classique" (hors Tauri) depuis la racine, si présent
+# Build Web (crée dist/ à la racine, artefact partagé)
+web:build:
+  stage: build
+  image: node:20
+  rules:
+    - exists: [package.json]
+  before_script:
+    - corepack enable || true
+  script: |
+    if [ -f pnpm-lock.yaml ]; then pnpm i --frozen-lockfile && pnpm -s build; \
+    elif [ -f yarn.lock ]; then yarn install --frozen-lockfile && yarn -s build; \
+    else npm ci && npm run -s build; fi
+  artifacts:
+    paths: [ "dist/", "build/" ]
+    when: on_success
+    expire_in: 1 week
+
+# Build Tauri (besoins système + récup artefacts du front)
+tauri:bundle:
+  stage: build
+  image: rust:1-bookworm
+  rules:
+    - exists: [src-tauri/Cargo.toml]
+  needs: ["web:build"]
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends \
+        pkg-config build-essential curl ca-certificates \
+        libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+        libwebkit2gtk-4.0-dev libjavascriptcoregtk-4.0-dev \
+        libssl-dev patchelf desktop-file-utils appstream
+    - cargo install tauri-cli --locked
+  script:
+    - echo "Bundling Tauri app"
+    - tauri build
+  artifacts:
+    paths:
+      - src-tauri/target/release/bundle/
+    expire_in: 1 week
+
+# (Optionnel) Build Rust racine si un workspace existe
 rust:build:
   stage: build
   image: rust:1
   rules:
-    - exists:
-        - Cargo.toml
+    - exists: [Cargo.toml]
   script:
-    - echo "Building root workspace"
     - cargo build --workspace --release
   artifacts:
-    paths:
-      - target/release/
+    paths: [ "target/release/" ]
     expire_in: 1 week
 
-# Build Tauri (installe les libs système manquantes)
-tauri:build:
-  stage: build
-  image: rust:1-bookworm
+# Tests Rust (workspace ou Tauri)
+rust:test:
+  stage: test
+  image: rust:1
+  needs: ["rust:build"]
   rules:
-    - exists:
-        - src-tauri/Cargo.toml
+    - exists: [Cargo.toml, src-tauri/Cargo.toml]
+  script: |
+    if [ -f Cargo.toml ]; then
+      cargo test --workspace --all-features --no-fail-fast;
+    elif [ -f src-tauri/Cargo.toml ]; then
+      cargo test --manifest-path src-tauri/Cargo.toml --all-features --no-fail-fast;
+    else
+      echo "No Cargo project detected"; exit 0;
+    fi
+
+wasm:build:
+  stage: build
+  image: rust:1
+  rules:
+    - exists: [ "src-wasm/Cargo.toml" ]
   before_script:
-    - apt-get update
-    - apt-get install -y --no-install-recommends
-      pkg-config build-essential curl ca-certificates
-      libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-      libwebkit2gtk-4.0-dev
+    - rustup target add wasm32-unknown-unknown wasm32-wasip1
   script:
-    - echo "Building Tauri app"
-    - cargo build --manifest-path src-tauri/Cargo.toml --release
+    - cargo build --manifest-path src-wasm/Cargo.toml --target wasm32-unknown-unknown --release
+    - cargo build --manifest-path src-wasm/Cargo.toml --target wasm32-wasip1         --release
   artifacts:
     paths:
-      - src-tauri/target/release/
+      - target/wasm32-unknown-unknown/release/*.wasm
+      - target/wasm32-wasip1/release/*.wasm
     expire_in: 1 week
-
-# Tests Rust (si workspace racine présent)
