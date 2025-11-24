@@ -9,7 +9,7 @@
       "description": "Chemin RELATIF au répertoire schemas/v1 (ex: actors/actor.schema.json).",
       "type": "string",
       "format": "uri-reference",
-      "pattern": "^(?:[A-Za-z0-9_\\-]+/)+[A-Za-z0-9_\\-]+\\.schema\\.json$"
+      "pattern": "^(?:\\.\\./)*(?:[A-Za-z0-9_\\-]+/)+[A-Za-z0-9_\\-]+\\.schema\\.json$"
     },
     "_id": {
       "title": "Identifiant (UUID)",
@@ -105,17 +105,9 @@
     },
 
     "version": {
-      "title": "Version container (for property ref)",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "version": {
-          "title": "SemVer",
-          "type": "string",
-          "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
-        }
-      },
-      "required": ["version"]
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "default": "1.0.0"
     },
     "semver": {
       "type": "string",
@@ -143,6 +135,24 @@
       "title": "Locale (BCP 47)",
       "allOf": [{ "$ref": "#/$defs/languageTag" }],
       "examples": ["fr", "fr-FR", "en-US"]
+    },
+    "percent0to100": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "percent0to1": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "euroAmount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "quantity": {
+      "type": "number",
+      "minimum": 0
     },
 
     "db_itemRef": {

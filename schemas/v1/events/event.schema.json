@@ -18,14 +18,16 @@
 
   "properties": {
     "$schema": {
-      "title": "URI du schéma JSON de l’instance",
-      "type": "string",
-      "format": "uri-reference",
-      "default": "https://genaptitude.local/schemas/v1/events/event.schema.json"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
     },
-
     "id": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
     },
 
     "type": {
@@ -68,7 +70,7 @@
     "version": {
       "title": "Version de l’événement",
       "allOf": [
-        { "$ref": "../common/types/primitive-types.schema.json#/$defs/version/properties/version" },
+        { "$ref": "../common/types/primitive-types.schema.json#/$defs/version" },
         { "default": "1.0.0" }
       ]
     },

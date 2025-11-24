@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genaptitude.local/schemas/v1/arcadia/metamodel/metamodel.schema.json",
+  "title": "Arcadia Metamodel (Shared Definitions)",
+  "x_schemaVersion": "1.0.0",
+  "type": "object",
+  "$defs": {
+    "Identifier": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Logical identifier. Use UUIDv4 or a deterministic mapping from source (e.g., Capella XMI)."
+    },
+    "Name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "Summary": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "DescriptionHTML": {
+      "type": "string",
+      "contentMediaType": "text/html",
+      "description": "Rich text, HTML allowed."
+    },
+    "Tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "default": []
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Traceability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "updatedBy": {
+          "type": "string"
+        }
+      }
+    },
+    "Ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "layer": {
+          "type": "string",
+          "enum": [
+            "oa",
+            "sa",
+            "la",
+            "pa",
+            "epbs"
+          ]
+        },
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "layer",
+        "type",
+        "id"
+      ]
+    },
+    "RelationshipKind": {
+      "type": "string",
+      "enum": [
+        "allocates",
+        "refines",
+        "realizes",
+        "flowsTo",
+        "dependsOn",
+        "decomposes",
+        "satisfies",
+        "verifies",
+        "tracesTo"
+      ]
+    },
+    "Relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/RelationshipKind"
+        },
+        "from": {
+          "$ref": "#/$defs/Ref"
+        },
+        "to": {
+          "$ref": "#/$defs/Ref"
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags"
+        },
+        "summary": {
+          "$ref": "#/$defs/Summary"
+        }
+      },
+      "required": [
+        "kind",
+        "from",
+        "to"
+      ]
+    },
+    "BaseProperties": {
+      "type": "object",
+      "properties": {
+        "_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "name": {
+          "$ref": "#/$defs/Name"
+        },
+        "summary": {
+          "$ref": "#/$defs/Summary"
+        },
+        "description": {
+          "$ref": "#/$defs/DescriptionHTML"
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags"
+        },
+        "trace": {
+          "$ref": "#/$defs/Traceability"
+        }
+      },
+      "required": [
+        "_id",
+        "name"
+      ]
+    }
+  }
+}

@@ -11,23 +11,26 @@
     "fr": "Représentation d’une Unité d’Œuvre (UO) : identité, statut, méta, entrées/sorties, liens et bloc finance.",
     "en": "Representation of a Work Unit (UO): identity, status, metadata, inputs/outputs, links and finance block."
   },
-  "x_tags": [
-    "uo",
-    "workunit"
-  ],
+  "x_tags": ["uo", "workunit"],
   "type": "object",
   "additionalProperties": false,
   "unevaluatedProperties": false,
   "properties": {
     "$schema": {
-      "type": "string",
-      "format": "uri-reference"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
     },
     "id": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/uuid"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
     },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
+    },
+
     "version": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/version/properties/version"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/version"
     },
     "code": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/slug"
@@ -40,15 +43,7 @@
     },
     "status": {
       "type": "string",
-      "enum": [
-        "draft",
-        "ready",
-        "in_progress",
-        "blocked",
-        "done",
-        "archived",
-        "canceled"
-      ],
+      "enum": ["draft", "ready", "in_progress", "blocked", "done", "archived", "canceled"],
       "default": "draft"
     },
     "owner": {
@@ -61,12 +56,6 @@
       },
       "uniqueItems": true,
       "default": []
-    },
-    "createdAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
-    },
-    "updatedAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
     },
     "dueAt": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
@@ -92,14 +81,7 @@
       "$ref": "./finance.schema.json"
     }
   },
-  "required": [
-    "id",
-    "code",
-    "name",
-    "status",
-    "createdAt",
-    "version"
-  ],
+  "required": ["id", "code", "name", "status", "createdAt", "version"],
   "patternProperties": {
     "^x_": {},
     "^\\$schema$": {

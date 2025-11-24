@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/activity-exchange.schema.json",
+  "title": "OA Activity Exchange",
+  "x_schemaVersion": "1.0.0",
+  "x_label": {
+    "fr": "Échange d'activité OA",
+    "en": "OA Activity Exchange"
+  },
+  "x_description": {
+    "fr": "Flux entre activités OA."
+  },
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../metamodel/metamodel.schema.json#/$defs/BaseProperties"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "../metamodel/metamodel.schema.json#/$defs/Ref"
+        },
+        "target": {
+          "$ref": "../metamodel/metamodel.schema.json#/$defs/Ref"
+        },
+        "payload": {
+          "type": "string"
+        },
+        "frequency": {
+          "type": "string"
+        },
+        "capella": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "xmi_id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ]
+    }
+  ]
+}

@@ -11,23 +11,14 @@
     "fr": "Hypothèses, coûts et prix (Build/Run) d’une UO, incluant les lignes 37–60 du modèle Excel : base forfait, aléas, prix catalogue (Build/Run/Crédits), charges par sprint et synthèse (COGS/Marge).",
     "en": "Assumptions, costs and pricing (Build/Run) for a Work Unit, including Excel rows 37–60: forfait base, contingency, catalog prices (Build/Run/Credits), sprint costs, and summary (COGS/Margin)."
   },
-  "x_tags": [
-    "uo",
-    "finance",
-    "costs",
-    "economics"
-  ],
+  "x_tags": ["uo", "finance", "costs", "economics"],
   "type": "object",
   "additionalProperties": false,
   "unevaluatedProperties": false,
   "$defs": {
     "billingFrequency": {
       "type": "string",
-      "enum": [
-        "monthly",
-        "quarterly",
-        "yearly"
-      ],
+      "enum": ["monthly", "quarterly", "yearly"],
       "x_enumLabels": {
         "monthly": {
           "fr": "Mensuel",
@@ -63,10 +54,7 @@
           "minimum": 0
         }
       },
-      "required": [
-        "role",
-        "jh"
-      ]
+      "required": ["role", "jh"]
     },
     "SprintBreakdown": {
       "title": "Détail d’un sprint",
@@ -150,21 +138,27 @@
           }
         }
       },
-      "required": [
-        "items"
-      ]
+      "required": ["items"]
     }
   },
   "properties": {
     "$schema": {
-      "type": "string",
-      "format": "uri-reference"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
+    },
+    "id": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
     },
     "x_emoji": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/x_emoji"
     },
     "version": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/version/properties/version"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/version"
     },
     "catalog_pricing": {
       "title": "Prix catalogue (Build/Run/Crédits)",
@@ -330,10 +324,7 @@
               "$ref": "#/$defs/SprintBreakdown"
             }
           },
-          "required": [
-            "sprint_0_1",
-            "sprint_2"
-          ]
+          "required": ["sprint_0_1", "sprint_2"]
         },
         "totaux": {
           "title": "Totaux globaux",
@@ -427,10 +418,7 @@
           }
         }
       },
-      "required": [
-        "tjm_eur",
-        "sprints"
-      ]
+      "required": ["tjm_eur", "sprints"]
     },
     "synthese_build": {
       "title": "Synthèse (Build)",
@@ -574,9 +562,7 @@
           }
         }
       },
-      "required": [
-        "controle"
-      ]
+      "required": ["controle"]
     },
     "tjm": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/euroAmount"
@@ -587,11 +573,7 @@
     "activation_credit": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "prix_eur",
-        "volume",
-        "unite"
-      ],
+      "required": ["prix_eur", "volume", "unite"],
       "patternProperties": {
         "^x_": {},
         "^\\$schema$": {

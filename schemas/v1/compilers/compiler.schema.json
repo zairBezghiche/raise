@@ -17,11 +17,16 @@
   "unevaluatedProperties": false,
   "properties": {
     "$schema": {
-      "type": "string",
-      "format": "uri-reference"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
     },
     "id": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/uuid"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
     },
     "handle": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/slug",
@@ -48,12 +53,6 @@
         "$ref": "../common/types/primitive-types.schema.json#/$defs/nonEmptyString"
       },
       "default": []
-    },
-    "createdAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
-    },
-    "updatedAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
     },
     "metadata": {
       "type": "object",
@@ -84,14 +83,7 @@
       "additionalProperties": true
     }
   },
-  "required": [
-    "id",
-    "handle",
-    "displayName",
-    "createdAt",
-    "name",
-    "version"
-  ],
+  "required": ["id", "handle", "displayName", "createdAt", "name", "version"],
   "examples": [
     {
       "id": "00000000-0000-0000-0000-000000000000",

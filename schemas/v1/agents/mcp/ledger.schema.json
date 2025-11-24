@@ -11,13 +11,21 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "$schema": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
+    },
+    "id": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
+    },
     "network": {
       "type": "string",
-      "enum": [
-        "dev",
-        "test",
-        "prod"
-      ]
+      "enum": ["dev", "test", "prod"]
     },
     "contracts": {
       "type": "array",
@@ -37,10 +45,7 @@
             "$ref": "../../common/types/primitive-types.schema.json#/$defs/nonEmptyString"
           }
         },
-        "required": [
-          "name",
-          "address"
-        ]
+        "required": ["name", "address"]
       }
     }
   },

@@ -3,23 +3,28 @@
 //! - expose des méthodes CRUD cohérentes (avec et sans schéma)
 //! - centralise les chemins cibles de collection (dérivés du schéma)
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
-use std::cell::RefCell;
+use std::sync::RwLock;
 
 use crate::json_db::{
     schema::{SchemaRegistry, SchemaValidator},
     storage::JsonDbConfig,
 };
 
+// Imports des primitives de collection (FS)
 use super::collection::create_collection_if_missing;
 use super::collection::delete_document as delete_document_fs;
 use super::collection::drop_collection as drop_collection_fs;
+use super::collection::list_collection_names_fs;
 use super::collection::list_document_ids as list_document_ids_fs;
 use super::collection::list_documents as list_documents_fs;
+use super::collection::read_document as read_document_fs;
+
+// Imports restaurés et utilisés
 use super::collection::persist_insert;
 use super::collection::persist_update;
-use super::collection::read_document as read_document_fs;
+use super::collection_from_schema_rel;
 
 /// Manager lié à un couple (space, db)
 #[derive(Debug)]
@@ -27,7 +32,8 @@ pub struct CollectionsManager<'a> {
     cfg: &'a JsonDbConfig,
     space: String,
     db: String,
-    registry: RefCell<Option<SchemaRegistry>>,
+    // RwLock pour la mutabilité interne thread-safe
+    registry: RwLock<Option<SchemaRegistry>>,
 }
 
 impl<'a> CollectionsManager<'a> {
@@ -37,40 +43,67 @@ impl<'a> CollectionsManager<'a> {
             cfg,
             space: space.to_string(),
             db: db.to_string(),
-            registry: RefCell::new(None),
+            registry: RwLock::new(None),
         }
     }
 
     /// (Re)charge explicitement le registre depuis la DB (forces refresh)
     pub fn refresh_registry(&self) -> Result<()> {
         let reg = SchemaRegistry::from_db(self.cfg, &self.space, &self.db)?;
-        *self.registry.borrow_mut() = Some(reg);
+
+        // Utilisation de write() pour muter
+        *self
+            .registry
+            .write()
+            .map_err(|e| anyhow!("RwLock poisoned on write: {}", e))? = Some(reg);
+
         Ok(())
     }
 
-    /// Accès au registre (lazy init)
-    fn registry(&self) -> Result<std::cell::Ref<'_, SchemaRegistry>> {
-        if self.registry.borrow().is_none() {
+    /// Helper interne pour s'assurer que le registre est chargé.
+    /// Ne retourne rien, s'assure juste que le RwLock contient Some.
+    fn ensure_registry_loaded(&self) -> Result<()> {
+        // Vérification rapide en lecture
+        let is_none = {
+            let guard = self
+                .registry
+                .read()
+                .map_err(|e| anyhow!("RwLock poisoned on read: {}", e))?;
+            guard.is_none()
+        };
+
+        // Si vide, on charge (avec verrou d'écriture)
+        if is_none {
             self.refresh_registry()?;
         }
-        // Safety: we viens de garantir qu'il est Some
-        Ok(std::cell::Ref::map(self.registry.borrow(), |opt| {
-            opt.as_ref().expect("registry is initialized")
-        }))
-        // Note: si besoin d'un RefMut, faire une seconde variante.
+        Ok(())
     }
 
     /// Construit une URI logique complète depuis un chemin relatif de schéma.
     pub fn schema_uri(&self, schema_rel: &str) -> Result<String> {
-        let reg = self.registry()?;
-        Ok(reg.uri(schema_rel))
+        self.ensure_registry_loaded()?;
+
+        let guard = self
+            .registry
+            .read()
+            .map_err(|e| anyhow!("RwLock poisoned: {}", e))?;
+        let reg = guard.as_ref().context("Registry should be initialized")?;
+
+        Ok(reg.uri(schema_rel).to_string())
     }
 
     /// Compile un validator pour `schema_rel`
     fn compile(&self, schema_rel: &str) -> Result<SchemaValidator> {
-        let reg = self.registry()?;
+        self.ensure_registry_loaded()?;
+
+        let guard = self
+            .registry
+            .read()
+            .map_err(|e| anyhow!("RwLock poisoned: {}", e))?;
+        let reg = guard.as_ref().context("Registry should be initialized")?;
+
         let root_uri = reg.uri(schema_rel);
-        SchemaValidator::compile_with_registry(&root_uri, &reg)
+        SchemaValidator::compile_with_registry(&root_uri, reg)
     }
 
     // ---------------------------
@@ -96,8 +129,11 @@ impl<'a> CollectionsManager<'a> {
         let validator = self.compile(schema_rel)?;
         validator.compute_then_validate(&mut doc)?;
 
-        let collection = super::collection_from_schema_rel(schema_rel);
+        // Utilisation de collection_from_schema_rel importé
+        let collection = collection_from_schema_rel(schema_rel);
         self.create_collection(&collection)?;
+
+        // Utilisation de persist_insert importé
         persist_insert(self.cfg, &self.space, &self.db, &collection, &doc)?;
         Ok(doc)
     }
@@ -112,7 +148,9 @@ impl<'a> CollectionsManager<'a> {
     pub fn update_with_schema(&self, schema_rel: &str, mut doc: Value) -> Result<Value> {
         let validator = self.compile(schema_rel)?;
         validator.compute_then_validate(&mut doc)?;
-        let collection = super::collection_from_schema_rel(schema_rel);
+
+        let collection = collection_from_schema_rel(schema_rel);
+        // Utilisation de persist_update importé
         persist_update(self.cfg, &self.space, &self.db, &collection, &doc)?;
         Ok(doc)
     }
@@ -148,21 +186,25 @@ impl<'a> CollectionsManager<'a> {
 
     /// Déduit le nom de collection à partir d’un schéma et liste les ids.
     pub fn list_ids_for_schema(&self, schema_rel: &str) -> Result<Vec<String>> {
-        let collection = super::collection_from_schema_rel(schema_rel);
+        let collection = collection_from_schema_rel(schema_rel);
         self.list_ids(&collection)
     }
 
     /// Upsert basé schéma : insert si absent, sinon update (selon présence de `id`)
-    /// NB: `persist_insert` échoue si existe déjà ; on tente update en fallback.
     pub fn upsert_with_schema(&self, schema_rel: &str, doc: Value) -> Result<Value> {
+        // On clone le doc pour l'essai d'insertion, car insert_with_schema le consomme
         match self.insert_with_schema(schema_rel, doc.clone()) {
             Ok(stored) => Ok(stored),
             Err(_e) => self.update_with_schema(schema_rel, doc),
         }
     }
 
-    /// Renvoie le (space, db) courants (utile pour logs/UI)
+    /// Renvoie le (space, db) courants
     pub fn context(&self) -> (&str, &str) {
         (&self.space, &self.db)
+    }
+
+    pub fn list_collection_names(&self) -> Result<Vec<String>> {
+        list_collection_names_fs(self.cfg, &self.space, &self.db)
     }
 }

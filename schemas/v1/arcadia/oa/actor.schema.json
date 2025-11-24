@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/actor.schema.json",
+  "title": "OA Actor",
+  "x_schemaVersion": "1.0.0",
+  "x_label": {
+    "fr": "Acteur OA",
+    "en": "OA Actor"
+  },
+  "x_description": {
+    "fr": "Acteur opérationnel (OA)."
+  },
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../metamodel/metamodel.schema.json#/$defs/BaseProperties"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "capella": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "xmi_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

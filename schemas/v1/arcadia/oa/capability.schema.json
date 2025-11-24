@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/capability.schema.json",
+  "title": "OA Capability",
+  "x_schemaVersion": "1.0.0",
+  "x_label": {
+    "fr": "Capacité OA",
+    "en": "OA Capability"
+  },
+  "x_description": {
+    "fr": "Capacité exprimant un besoin opérationnel au niveau OA."
+  },
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../metamodel/metamodel.schema.json#/$defs/BaseProperties"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "relatedActivities": {
+          "type": "array",
+          "items": {
+            "$ref": "../metamodel/metamodel.schema.json#/$defs/Ref"
+          },
+          "description": "Activités OA en relation avec cette capacité."
+        },
+        "ownedCapabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "../metamodel/metamodel.schema.json#/$defs/Ref"
+          },
+          "description": "Arborescence de capacités (capacité fille)."
+        },
+        "capella": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "xmi_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

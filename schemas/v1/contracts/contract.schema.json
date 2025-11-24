@@ -17,11 +17,16 @@
   "unevaluatedProperties": false,
   "properties": {
     "$schema": {
-      "type": "string",
-      "format": "uri-reference"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
     },
     "id": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/uuid"
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
     },
     "handle": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/slug",
@@ -49,12 +54,6 @@
       },
       "default": []
     },
-    "createdAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
-    },
-    "updatedAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
-    },
     "metadata": {
       "type": "object",
       "additionalProperties": true,
@@ -67,10 +66,7 @@
       }
     },
     "kind": {
-      "enum": [
-        "smart",
-        "legal"
-      ]
+      "enum": ["smart", "legal"]
     },
     "name": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/nonEmptyString"
@@ -90,14 +86,7 @@
       "additionalProperties": true
     }
   },
-  "required": [
-    "id",
-    "handle",
-    "displayName",
-    "createdAt",
-    "kind",
-    "name"
-  ],
+  "required": ["id", "handle", "displayName", "createdAt", "kind", "name"],
   "examples": [
     {
       "id": "00000000-0000-0000-0000-000000000000",

@@ -8,16 +8,24 @@
   "properties": {
     "transport": {
       "type": "string",
-      "enum": [
-        "stdio",
-        "http",
-        "sse"
-      ]
+      "enum": ["stdio", "http", "sse"]
     },
     "stdio": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "$schema": {
+          "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
+        },
+        "id": {
+          "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+        },
+        "createdAt": {
+          "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+        },
+        "updatedAt": {
+          "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
+        },
         "command": {
           "$ref": "../../common/types/primitive-types.schema.json#/$defs/nonEmptyString"
         },
@@ -127,9 +135,7 @@
       }
     }
   },
-  "required": [
-    "transport"
-  ],
+  "required": ["transport"],
   "allOf": [
     {
       "if": {
@@ -140,9 +146,7 @@
         }
       },
       "then": {
-        "required": [
-          "stdio"
-        ]
+        "required": ["stdio"]
       }
     },
     {
@@ -154,9 +158,7 @@
         }
       },
       "then": {
-        "required": [
-          "http"
-        ]
+        "required": ["http"]
       }
     },
     {
@@ -168,9 +170,7 @@
         }
       },
       "then": {
-        "required": [
-          "http"
-        ]
+        "required": ["http"]
       }
     }
   ],
@@ -190,10 +190,7 @@
           "$ref": "../../common/types/primitive-types.schema.json#/$defs/i18nNonEmptyString"
         }
       },
-      "required": [
-        "name",
-        "uri"
-      ],
+      "required": ["name", "uri"],
       "patternProperties": {
         "^x_": {}
       }
@@ -218,9 +215,7 @@
           "default": []
         }
       },
-      "required": [
-        "id"
-      ],
+      "required": ["id"],
       "patternProperties": {
         "^x_": {}
       }
@@ -240,10 +235,7 @@
           "$ref": "../../common/types/primitive-types.schema.json#/$defs/i18nNonEmptyString"
         }
       },
-      "required": [
-        "id",
-        "content"
-      ],
+      "required": ["id", "content"],
       "patternProperties": {
         "^x_": {}
       }

@@ -19,14 +19,16 @@
 
   "properties": {
     "$schema": {
-      "type": "string",
-      "format": "uri-reference",
-      "description": "Référence (facultative) vers le schéma utilisé."
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
     },
-
     "id": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/uuid",
-      "description": "Identifiant unique du rôle."
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
     },
 
     "handle": {
@@ -100,16 +102,6 @@
       "items": { "$ref": "../common/types/primitive-types.schema.json#/$defs/nonEmptyString" },
       "uniqueItems": true,
       "default": []
-    },
-
-    "createdAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime",
-      "description": "Horodatage de création."
-    },
-
-    "updatedAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime",
-      "description": "Dernière mise à jour."
     }
   },
 

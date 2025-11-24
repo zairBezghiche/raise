@@ -1,16 +1,18 @@
 //! JSON-DB Tauri commands
 //!
 //! Ces commandes exposent les opérations principales (CRUD) via Tauri.
-//! NOTE: On utilise des imports `crate::...` car on est *dans* le même crate.
-//! Les tests externes peuvent, eux, utiliser `genaptitude::...`.
 
 use serde_json::Value;
 use std::path::Path;
+
+// 2. QueryInput est dans json_db::query
+use crate::json_db::query::{QueryEngine, QueryInput, QueryResult};
 
 use crate::json_db::{
     collections::manager::CollectionsManager,
     storage::{file_storage, JsonDbConfig},
 };
+// -----------------------------
 
 /// Construit une config à partir de l’arbo du repo (CARGO_MANIFEST_DIR = src-tauri/)
 fn cfg_from_repo_env() -> Result<JsonDbConfig, String> {
@@ -24,7 +26,6 @@ fn cfg_from_repo_env() -> Result<JsonDbConfig, String> {
 fn mgr(space: &str, db: &str) -> Result<(JsonDbConfig, CollectionsManager<'static>), String> {
     // On construit une config puis un manager qui l’emprunte.
     // Pour satisfaire les durées de vie, on "leake" la config en 'static'
-    // (pattern simple et sûr ici, la config est petite et vit jusqu’à la fin du process).
     let cfg_owned = cfg_from_repo_env()?;
     let cfg_static: &'static JsonDbConfig = Box::leak(Box::new(cfg_owned));
     // S’assure que la DB existe
@@ -54,7 +55,7 @@ pub fn jsondb_drop_collection(space: String, db: String, collection: String) -> 
     m.drop_collection(&collection).map_err(|e| e.to_string())
 }
 
-/// Insert avec schéma (x_compute + validate + $schema auto)
+/// Insert avec schéma :
 #[tauri::command]
 pub fn jsondb_insert_with_schema(
     space: String,
@@ -67,7 +68,7 @@ pub fn jsondb_insert_with_schema(
         .map_err(|e| e.to_string())
 }
 
-/// Upsert avec schéma (insert sinon update)
+/// Upsert avec schéma
 #[tauri::command]
 pub fn jsondb_upsert_with_schema(
     space: String,
@@ -80,7 +81,7 @@ pub fn jsondb_upsert_with_schema(
         .map_err(|e| e.to_string())
 }
 
-/// Insert brut (sans schéma)
+/// Insert direct (sans schéma)
 #[tauri::command]
 pub fn jsondb_insert_raw(
     space: String,
@@ -92,7 +93,7 @@ pub fn jsondb_insert_raw(
     m.insert_raw(&collection, &doc).map_err(|e| e.to_string())
 }
 
-/// Update avec schéma (recompute + validate)
+/// Update avec schéma
 #[tauri::command]
 pub fn jsondb_update_with_schema(
     space: String,
@@ -105,7 +106,7 @@ pub fn jsondb_update_with_schema(
         .map_err(|e| e.to_string())
 }
 
-/// Update brut (sans schéma)
+/// Update direct (sans schéma)
 #[tauri::command]
 pub fn jsondb_update_raw(
     space: String,
@@ -163,9 +164,74 @@ pub fn jsondb_list_all(
     m.list_all(&collection).map_err(|e| e.to_string())
 }
 
-/// (Optionnel) Rechargement du registre de schémas
+/// Rechargement du registre de schémas
 #[tauri::command]
 pub fn jsondb_refresh_registry(space: String, db: String) -> Result<(), String> {
     let (_cfg, m) = mgr(&space, &db)?;
     m.refresh_registry().map_err(|e| e.to_string())
+}
+
+// ----------------------------------------------------------------------
+// --- Fonctions Résolvant les Erreurs du main.rs et du moteur de requête ---
+// ----------------------------------------------------------------------
+
+/// Fonction de requête
+#[tauri::command]
+pub async fn jsondb_query_collection(
+    space: String,
+    db: String,
+    _bucket: String,
+    query_json: String,
+) -> Result<QueryResult, String> {
+    // 1. Désérialisation de la requête
+    let query_input: QueryInput = match serde_json::from_str(&query_json) {
+        Ok(q) => q,
+        Err(e) => return Err(format!("Requête JSON invalide : {}", e)),
+    };
+
+    // 2. Initialisation de la DB via le manager
+    let (_cfg, m) = mgr(&space, &db)?;
+
+    // 3. Création du QueryEngine et exécution
+    // 💡 CORRECTION : Ajout du & pour passer la référence
+    let engine = QueryEngine::new(&m);
+
+    // 💡 CORRECTION : Utilisation de la méthode correcte execute_query
+    match engine.execute_query(query_input).await {
+        Ok(result) => Ok(result),
+        Err(e) => Err(format!(
+            "Erreur d'exécution de la requête : {}",
+            e.to_string()
+        )),
+    }
+}
+
+/// Insert simple (résout `__cmd__jsondb_insert` dans main.rs)
+#[tauri::command]
+pub fn jsondb_insert(
+    space: String,
+    db: String,
+    schema_rel: String,
+    doc: Value,
+) -> Result<Value, String> {
+    jsondb_insert_with_schema(space, db, schema_rel, doc)
+}
+
+/// Upsert simple (résout `__cmd__jsondb_upsert` dans main.rs)
+#[tauri::command]
+pub fn jsondb_upsert(
+    space: String,
+    db: String,
+    schema_rel: String,
+    doc: Value,
+) -> Result<Value, String> {
+    jsondb_upsert_with_schema(space, db, schema_rel, doc)
+}
+
+/// Liste des collections (résout `__cmd__jsondb_list_collections` dans main.rs)
+#[tauri::command]
+pub fn jsondb_list_collections(space: String, db: String) -> Result<Vec<String>, String> {
+    let (_cfg, m) = mgr(&space, &db)?;
+    // 💡 CORRECTION : Utilisation de list_collection_names
+    m.list_collection_names().map_err(|e| e.to_string())
 }

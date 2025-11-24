@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/activity.schema.json",
+  "title": "OA Activity",
+  "x_schemaVersion": "1.0.0",
+  "x_label": {
+    "fr": "Activité OA",
+    "en": "OA Activity"
+  },
+  "x_description": {
+    "fr": "Activité opérationnelle (OA)."
+  },
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "../metamodel/metamodel.schema.json#/$defs/BaseProperties"
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "performedBy": {
+          "type": "array",
+          "items": {
+            "$ref": "../metamodel/metamodel.schema.json#/$defs/Ref"
+          },
+          "description": "Actors performing this activity (OA)"
+        },
+        "capella": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "xmi_id": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

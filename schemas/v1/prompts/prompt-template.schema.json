@@ -11,9 +11,17 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "$schema": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/instanceSchemaUri"
+    },
     "id": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/slug",
-      "description": "Identifiant court du template (stable)."
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
     },
     "handle": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/slug",
@@ -70,24 +78,10 @@
       "items": { "$ref": "#/$defs/Message" },
       "minItems": 1
     },
-    "createdAt": {
-      "title": "Date de création (UTC)",
-      "allOf": [
-        { "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime" },
-        {
-          "x_compute": {
-            "engine": "plan/v1",
-            "scope": "self",
-            "update": "if_missing",
-            "plan": { "op": "now_rfc3339" }
-          }
-        }
-      ]
-    },
     "version": {
       "title": "Version fonctionnelle du template",
       "allOf": [
-        { "$ref": "../common/types/primitive-types.schema.json#/$defs/version/properties/version" },
+        { "$ref": "../common/types/primitive-types.schema.json#/$defs/version" },
         { "default": "0.1.0" }
       ]
     }

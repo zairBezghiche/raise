@@ -193,3 +193,25 @@ pub fn list_documents(
     }
     Ok(docs)
 }
+/// Liste tous les noms de collections (dossiers) existantes pour la DB.
+pub fn list_collection_names_fs(cfg: &JsonDbConfig, space: &str, db: &str) -> Result<Vec<String>> {
+    let root = db_root(cfg, space, db).join("collections");
+    let mut out = Vec::new();
+    if !root.exists() {
+        return Ok(out);
+    }
+
+    // Lire les dossiers
+    for e in fs::read_dir(&root).with_context(|| root.display().to_string())? {
+        let e = e?;
+        let p = e.path();
+        if p.is_dir() {
+            // On ne veut que les dossiers
+            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                out.push(name.to_string());
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
