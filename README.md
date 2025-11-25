@@ -1,188 +1,92 @@
-<p align="center"><img src="src/assets/images/logo-white.svg" alt="GenAptitude" width="180"></p>
+# GenAptitude · Usine de Cas d'Usage IA Orientée Poste de Travail
 
-# GenAptitude · Workstation-First AI Use-Case Factory
+<p align="center">
+  <img src="src/assets/images/logo-white.svg" alt="GenAptitude Logo" width="200">
+</p>
 
-Turn repeatable business tasks into **local, auditable, and explainable** assistants.  
-This repository contains the **desktop app (Tauri v2 + Rust)**, the **frontend (Vite + React + TypeScript)**, and a **Rust→WASM** demo.
+**GenAptitude** est une plateforme d'ingénierie système (MBSE) souveraine et locale. Elle permet de transformer des tâches d'ingénierie complexes en assistants **locaux, auditables et explicables** en combinant IA générative et modélisation formelle.
 
-## Why MBAIE (Model‑based AI Neuro‑Symbolic Engineering)?
-
-GenAptitude embraces **MBAIE** to combine the strengths of **neural** (LLMs, embeddings, vector search) and **symbolic** AI (ontologies, rule engines, deterministic solvers) within a **model‑based** backbone. Business knowledge is modeled explicitly (Arcadia/Capella mindset; JSON/JSON‑LD schemas, typed events, contracts), then executed by a pipeline where:
-
-- **(1)** retrieval and LLMs generate hypotheses;
-- **(2)** **rules/constraints** check compliance and fill gaps;
-- **(3)** **explanations** and **evidence** (sources, rule traces) are attached to each output;
-- **(4)** artifacts are **versioned and auditable** end‑to‑end. This neuro‑symbolic approach yields **consistency, controllability, and trust**, while remaining **workstation‑first** (privacy, cost, energy) and ready for \*\*continuous improvement\*\* (LoRA/QLoRA fine‑tuning against model‑based test suites).
+Ce projet est un monorepo contenant une **application de bureau (Tauri v2 + Rust)**, une **interface réactive (React + Vite)**, un noyau de calcul en **WebAssembly**, et un moteur de **base de données JSON transactionnelle**.
 
 ---
 
-## 📋 Overview
+## 🚀 Fonctionnalités Techniques Clés
 
-- **Workstation-first & sovereign**: runs locally; no cloud lock-in.
-- **Tauri v2 desktop**: tiny footprint, native packaging.
-- **Frontend**: Vite + React (TS). Vite root is `src/`; static assets in `public/`.
-- **WASM demo**: `ga_wasm.wasm` served from `public/wasm/`.
-- **Local API (invoke)**: sample commands to register/read JSON Schemas (persisted in the app’s user-data directory).
-- **CI (GitLab)**: builds web artifacts, compiles WASM, bundles Linux installers (AppImage / .deb / .rpm).
+### 🧠 MBAIE (Model-Based AI Neuro-Symbolic Engineering)
 
----
+GenAptitude implémente une approche hybride :
 
-## Repository Layout
+- [cite_start]**Orchestration Multi-Agents** : Agents spécialisés (`Software`, `System`, `Hardware`) pilotés par des modèles formels Arcadia/Capella[cite: 12].
+- [cite_start]**Contexte Sémantique** : Support natif de **JSON-LD** (`json_db/jsonld`) pour lier les données aux ontologies métiers (OA, SA, LA, PA, EPBS)[cite: 5].
+- [cite_start]**Inférence Locale** : Architecture conçue pour fonctionner avec des LLMs locaux (via `llama.cpp`) et une mémoire vectorielle (RAG) sans dépendance cloud[cite: 52].
 
-```
-.
-├─ src/                         # Vite root (frontend)
-│  ├─ index.html
-│  ├─ main.tsx / App.tsx
-│  └─ pages/
-│     └─ dark-mode-demo.html    # Static demo (light/dark)
-├─ public/                      # Copied as-is → dist/
-│  └─ wasm/ga_wasm.wasm
-├─ dist/                        # Frontend build output (generated)
-├─ src-tauri/                   # Tauri v2 (Rust)
-│  ├─ src/main.rs               # invoke commands + local persistence
-│  └─ tauri.conf.json           # "frontendDist": "../dist"
-├─ src-wasm/                    # Rust crate compiled to WASM (wasip1/unknown)
-└─ .gitlab-ci.yml               # GitLab pipeline (web, wasm, tauri bundle)
-```
+### 📦 JSON-DB Transactionnelle
+
+Un moteur de base de données NoSQL sur-mesure développé en Rust (`src-tauri/src/json_db`) :
+
+- [cite_start]**Stockage Local** : Données stockées en fichiers JSON, validées par **JSON Schema** avant écriture[cite: 13].
+- [cite_start]**Transactions ACID** : Support complet des transactions multi-documents grâce à un **Write-Ahead Log (WAL)** (`_wal.jsonl`) garantissant l'atomicité[cite: 636, 638].
+- [cite_start]**Moteur `x_compute`** : Calcul automatique de champs (UUID, timestamps, agrégats) intégré au pipeline d'insertion[cite: 969].
+- **Indexation** : Index Hash, BTree et Textuels maintenus en mémoire pour des performances de lecture élevées.
+
+### 🛡️ Souveraineté & Réseau Mesh
+
+- [cite_start]**Blockchain Fabric** : Client gRPC intégré (`blockchain/fabric`) pour l'enregistrement immuable des décisions d'architecture sur Hyperledger Fabric.
+- [cite_start]**VPN Mesh (Innernet)** : Client WireGuard embarqué (`blockchain/vpn`) pour créer des réseaux privés sécurisés (Interface `genaptitude0`) entre postes ingénieurs.
+- **Traçabilité** : Audit trail complet pour la conformité aux standards critiques (DO-178C, ISO-26262)[cite: 16].
 
 ---
 
-## Prerequisites
+## 🛠️ Installation et Démarrage
 
-- **Node 20+** and a package manager (npm / pnpm / yarn)
-- **Rust 1.88+** with `rustup`
-- WASM targets:
-  ```bash
-  rustup target add wasm32-unknown-unknown wasm32-wasip1
-  ```
-- (Optional for local packaging) WebKitGTK/JavaScriptCore/GTK dev libs (CI already bundles installers).
+### Prérequis
 
----
+- **Node.js 20+** (Gestion du frontend)
+- **Rust 1.88+** (Backend et WASM)
+- [cite_start]**Cibles WASM** : `rustup target add wasm32-unknown-unknown wasm32-wasip1`[cite: 34].
 
-## Quick Start
+### Commandes Rapides
 
-### Frontend (browser dev)
+1.  **Compiler le module WASM** (Requis pour le fonctionnement de l'UI) :
 
-```bash
-npm install
-npm run dev
-# Open http://localhost:1420
-```
+    ```bash
+    cd src-wasm && ./build.sh && cd ..
+    ```
 
-### Desktop (Tauri dev)
+2.  **Lancer l'environnement de développement** :
 
-Runs Vite for you via `beforeDevCommand`:
+    ```bash
+    npm install
+    cargo tauri dev
+    ```
 
-```bash
-cargo tauri dev
-```
+    Ceci lancera simultanément le serveur Vite (Frontend) et le backend Tauri.
 
-### Production Build
-
-```bash
-# 1) Build the frontend → ./dist
-npm run build
-
-# 2) Bundle the desktop app → ./target/release/bundle/**
-cargo tauri build
-# Produces AppImage, .deb, .rpm under target/release/bundle/
-```
+3.  **Administration BDD (CLI)** :
+    Pour interagir avec la base de données sans l'interface graphique :
+    ```bash
+    cd src-tauri/tools/jsondb_cli
+    # Exemple : Lister tous les documents d'une collection
+    cargo run -- query find-many un2 _system query.json
+    ```
 
 ---
 
-## WASM Integration (demo)
+## 🏗️ Structure du Projet
 
-`ga_wasm.wasm` is served from `public/wasm/` (copied to `dist/wasm/...` at build time).
-
-Quick console test (dev or desktop DevTools):
-
-```js
-(async () => {
-  const { instance } = await WebAssembly.instantiateStreaming(fetch('/wasm/ga_wasm.wasm'));
-  console.log('ga_add(2,2)=', instance.exports.ga_add(2, 2)); // → 4
-})();
-```
-
----
-
-## Local API (Tauri invoke)
-
-Two example commands in `src-tauri/src/main.rs`:
-
-- `register_schema(schemaId: String, schema_json: String)`
-- `get_schema(schemaId: String)`
-
-They persist files in the **app user-data directory**, not in `src-tauri/`, to avoid dev rebuild loops.
-
-Frontend usage:
-
-```ts
-import { invoke } from '@tauri-apps/api/core';
-
-await invoke('register_schema', {
-  schemaId: 'demo',
-  schemaJson: JSON.stringify({ $id: 'demo', type: 'object' }, null, 2),
-});
-const text = await invoke<string>('get_schema', { schemaId: 'demo' });
-console.log('schema demo =', JSON.parse(text));
-```
-
----
-
-## CI/CD (GitLab)
-
-Stages: **lint → build → test**.
-
-- **web:build** — Vite build; publishes `dist/` as artifact.
-- **wasm:build** — builds `src-wasm` for `wasm32-unknown-unknown` and `wasm32-wasip1`.
-- **rust:test** — runs tests for the WASM crate.
-- **tauri:bundle** — installs Debian 12 (bookworm) deps incl. backports for WebKitGTK/JSCore **4.1** (`libwebkit2gtk-4.1-dev`, `libjavascriptcoregtk-4.1-dev`, `libsoup-3.0-dev`), then `cargo tauri build`.  
-  Artifacts:
-  - `target/release/bundle/appimage/GenAptitude_*.AppImage`
-  - `target/release/bundle/deb/GenAptitude_*.deb`
-  - `target/release/bundle/rpm/GenAptitude-*.rpm`
-
----
-
-## Static Pages
-
-- `src/pages/dark-mode-demo.html` is emitted to `/dist/pages/dark-mode-demo.html`.  
-  Link to it from your app:
-  ```tsx
-  <a href="/pages/dark-mode-demo.html">Dark Mode Demo</a>
-  ```
-- For simple legal/FAQ pages without React, you can also drop HTML files under `public/pages/` and link them with absolute paths (e.g., `/pages/faq.html`).
-
----
-
-## Troubleshooting
-
-- **Endless rebuild in `cargo tauri dev`**: don’t write files under `src-tauri/` from the frontend. The provided commands store data in the OS user-data dir.
-- **White screen in desktop**: ensure `npm run build` was run and `tauri.conf.json` uses `"frontendDist": "../dist"`.
-- **WASM 404**: ensure `public/wasm/ga_wasm.wasm` exists before building; it will appear in `dist/wasm/`.
-- **Port in use**: change Vite `server.port` (and `devUrl` in `tauri.conf.json`) or stop the previous dev server.
-
----
-
-## Scripts
-
-`package.json`:
-
-- `dev` — Vite dev server
-- `build` — Vite production build → `dist/`
-- `tauri:dev` — `tauri dev`
-- `tauri:build` — `tauri build`
-
----
-
-## License
-
-TBD.
+- **`src-tauri/`** : Backend Rust. Cœur de l'application.
+  - `json_db/` : Moteur de base de données custom (Collections, Index, WAL).
+  - `blockchain/` : Clients Fabric (gRPC) et Innernet (WireGuard).
+  - `ai/` : Orchestrateur, Agents et NLP.
+  - `model_engine/` : Logique métier Arcadia/Capella.
+- [cite_start]**`src-wasm/`** : Code Rust compilé en WebAssembly pour les calculs lourds côté client (Algorithmes de graphes, Parsing XMI)[cite: 39].
+- **`src/`** : Frontend React/TypeScript (Composants, Stores Zustand, Services).
+- [cite_start]**`schemas/`** : Définitions JSON Schema & JSON-LD versionnées (v1) pour tous les objets métier[cite: 5].
+- **`domain-models/`** : Modèles de référence métier (Arcadia, HDL, Software Patterns)[cite: 1].
 
 ---
 
 ## Contact
 
-**GenAptitude — Workstation-First AI Use-Case Factory**  
-Contact: **zair@bezghiche.com**
+**GenAptitude — Workstation-First AI Use-Case Factory**
+Contact : **zair@bezghiche.com**

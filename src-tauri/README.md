@@ -1,106 +1,71 @@
-# 🦀 GenAptitude - Backend Rust
+# 🦀 GenAptitude - Backend Rust (Tauri)
 
-Ce répertoire contient le code source **Rust** de l'application GenAptitude (backend Tauri). Il gère la logique métier, la persistance des données, l'IA et la modélisation système.
+Ce dossier contient le code source **Rust** de l'application GenAptitude. Il gère la logique métier critique, la persistance des données, l'IA et les communications sécurisées.
 
-## 🏗️ Architecture
+## 🏗️ Architecture Modulaire
 
-Le backend est structuré de manière modulaire pour séparer les responsabilités :
+[cite_start]Le code est organisé en modules distincts exposés via `lib.rs`[cite: 14]:
 
-```
-src-tauri/
-├── src/
-│   ├── main.rs           # Point d'entrée Tauri (Setup & Run)
-│   ├── lib.rs            # Bibliothèque core (exports des modules)
-│   ├── commands/         # Interface API exposée au Frontend (tauri::command)
-│   ├── json_db/          # Base de données JSON embarquée (Moteur)
-│   ├── ai/               # Orchestration IA Multi-Agents
-│   ├── model_engine/     # Moteur de modélisation Arcadia/Capella
-│   └── ...
-├── tests/                # Suites de tests d'intégration (json_db_suite)
-└── tools/                # Outils CLI (jsondb_cli)
-```
+### 1. `json_db` (Persistance Avancée)
 
----
+Moteur de base de données NoSQL transactionnel conçu sur mesure pour garantir l'intégrité des données d'ingénierie.
 
-## 📦 Modules Principaux
+- **`collections/`** : Gestionnaire haut niveau (CRUD). [cite_start]Gère le cycle de vie des fichiers JSON et expose une API thread-safe (`CollectionsManager`)[cite: 13].
+- **`transactions/`** : Moteur ACID. [cite_start]Utilise un **Write-Ahead Log (WAL)** (`_wal.jsonl`) pour garantir l'atomicité des opérations multi-documents (`ActiveTransaction`).
+- [cite_start]**`indexes/`** : Moteur d'indexation (Hash, BTree, Text) maintenu en mémoire pour accélérer les lectures, avec persistance via `bincode`.
+- [cite_start]**`schema/`** : Registre de schémas (`SchemaRegistry`) et moteur `x_compute` pour les champs calculés (UUID, timestamps, pointeurs)[cite: 928].
+- [cite_start]**`query/`** : Moteur de requête (`QueryExecutor`) avec optimiseur, supportant les filtres complexes JSON[cite: 699].
 
-### 1. Base de Données (`json_db`)
+### 2. `blockchain` (Souveraineté)
 
-Le cœur du système de persistance. C'est une base de données NoSQL orientée documents, stockée sous forme de fichiers JSON, mais avec des garanties fortes.
+[cite_start]Gestion de la sécurité distribuée et du réseau[cite: 510].
 
-- **Architecture** : Asynchrone (`tokio`) et Thread-Safe (`RwLock`).
-- **Validation** : Utilise **JSON Schema** pour valider strictement chaque document avant écriture.
-- **x_compute** : Système de champs calculés (UUID, timestamps, liens) exécuté côté backend.
-- **Stockage** : Hiérarchie `Space` > `Database` > `Collection`. Écritures atomiques (pas de corruption).
-- **Requêtes** : Moteur de requêtes (`QueryEngine`) supportant filtres complexes, tris et pagination.
+- **`fabric/`** : Client gRPC pour Hyperledger Fabric. [cite_start]Permet de signer et soumettre des transactions (`RecordDecision`) localement via des identités MSP.
+- **`vpn/`** : Wrapper pour **Innernet** (WireGuard). [cite_start]Gère la création d'interfaces réseau mesh (`genaptitude0`) pour la communication P2P.
 
-### 2. Interface Frontend (`commands`)
+### 3. `ai` (Intelligence Artificielle)
 
-Ce module fait le pont entre l'interface React (TypeScript) et le code Rust.
-Toutes les fonctions ici sont asynchrones (`async fn`) et retournent des `Result` gérés par Tauri.
+[cite_start]Orchestrateur Neuro-Symbolique[cite: 571].
 
-- Les commandes `json_db_commands.rs` exposent le CRUD et le `QueryEngine` au frontend.
+- [cite_start]**`agents/`** : Implémentation des agents spécialisés (`HardwareAgent`, `SoftwareAgent`, `SystemAgent`) et classificateur d'intentions[cite: 12].
+- **`nlp/`** : Pipeline d'extraction d'entités et analyse syntaxique.
+- **`llm/`** : Client d'inférence pour modèles locaux.
 
-### 3. Intelligence Artificielle (`ai`)
+### 4. `model_engine` (MBSE)
 
-- Gestion des **Agents Spécialisés** (System Engineer, Software Architect, etc.).
-- Gestion du contexte et des prompts.
-- (En cours) Intégration RAG (Retrieval Augmented Generation) avec la `json_db`.
+[cite_start]Manipulation des modèles d'ingénierie[cite: 15].
+
+- **`arcadia/`** : Structures de données pour les couches Arcadia (OA, SA, LA, PA, EPBS).
+- **`capella/`** : Parsers et générateurs pour l'interopérabilité Capella (XML/XMI).
+- **`validators/`** : Vérification de cohérence et compliance (ISO-26262, DO-178C).
 
 ---
 
-## 🛠️ Développement
+## 🛠️ Commandes Tauri (`src/commands`)
 
-### Pré-requis
+[cite_start]L'API exposée au frontend est définie dans les modules suivants[cite: 539]:
 
-- Rust (édition 2021)
-- Node.js / Bun (pour le frontend)
-- Variables d'environnement configurées (voir `.env`).
+### [cite_start]Base de données (`json_db_commands.rs`) [cite: 553]
 
-### Tests
+- `jsondb_insert_with_schema` : Création avec validation et calcul automatique.
+- `jsondb_execute_transaction` : Exécution atomique d'un lot d'opérations (Insert/Update/Delete).
+- `jsondb_query_collection` : Recherche avancée avec filtres et tri.
 
-Le projet dispose d'une suite de tests rigoureuse, particulièrement pour la base de données.
+### [cite_start]Blockchain & Réseau (`blockchain_commands.rs`) [cite: 565]
+
+- `record_decision` : Ancrage d'une décision sur la blockchain.
+- `vpn_connect` / `vpn_get_status` : Gestion de la connexion au réseau privé.
+
+---
+
+## 🧪 Tests
+
+[cite_start]Le projet inclut une suite de tests d'intégration complète (`tests/json_db_suite.rs`)[cite: 406]:
 
 ```bash
-# Lancer tous les tests (Unitaires + Intégration)
-cargo test
-
-# Lancer uniquement la suite d'intégration de la DB
+# Lancer tous les tests d'intégration DB (Cycle de vie, ACID, x_compute)
 cargo test --test json_db_suite
 
-# Lancer un test spécifique avec les logs activés
-RUST_LOG=debug cargo test --test json_db_suite -- query_find_many --nocapture
+# Lancer un test spécifique pour le debug
+RUST_LOG=debug cargo test --test json_db_suite -- transaction_commit_success
 ```
-
-**Note sur les tests d'intégration :**
-Les tests `json_db_suite` créent des environnements temporaires isolés (`/tmp/jsondb_ut_...`) et chargent de vrais datasets (`PATH_GENAPTITUDE_DATASET`) pour valider le comportement réel du moteur.
-
-### CLI (`jsondb_cli`)
-
-Un outil en ligne de commande est disponible dans `tools/jsondb_cli` pour administrer la base de données sans lancer l'interface graphique.
-
-```bash
-# Build et utilisation
-cd tools/jsondb_cli
-cargo run -- query find-many un2 _system my_query.json
-```
-
----
-
-## 🧩 Patterns de Code
-
-### Gestion de la Concurrence (`json_db`)
-
-Si vous devez modifier le cœur de la DB, notez que :
-
-- Le `CollectionsManager` est conçu pour être partagé (`Arc<CollectionsManager>` ou instancié à la volée).
-- L'accès au `SchemaRegistry` est protégé par un **`RwLock`**. Utilisez les méthodes internes `get_registry_guard()` pour y accéder.
-- Toutes les I/O disques sont (pour l'instant) synchrones pour garantir l'atomicité, mais enveloppées dans des commandes `async` pour ne pas bloquer l'UI Tauri.
-
-### Gestion des Erreurs
-
-Nous utilisons la crate **`anyhow`** pour la propagation des erreurs dans le backend, qui sont ensuite sérialisées en chaînes de caractères pour le frontend via Tauri.
-
----
-
-**Dernière mise à jour** : Refactoring Async/Thread-Safe - Novembre 2025
