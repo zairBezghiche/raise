@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::fs;
 
-// 💡 Import de get_dataset_root
+// 💡 Import de get_dataset_root et des constantes de test
 use crate::common::{ensure_db_exists, get_dataset_root, init_test_env, TEST_DB, TEST_SPACE};
 use genaptitude::json_db::collections::manager::CollectionsManager;
 use genaptitude::json_db::storage::JsonDbConfig;
@@ -30,8 +30,12 @@ fn load_base_article(_cfg: &JsonDbConfig) -> Value {
 fn query_get_article_by_id() {
     let test_env = init_test_env();
     let cfg = &test_env.cfg;
-    let _db = ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
-    let mgr = CollectionsManager::new(cfg, TEST_SPACE, TEST_DB);
+
+    // Initialisation physique
+    ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
+
+    // CORRECTION : On passe &test_env.storage au lieu de cfg
+    let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
 
     let mut doc = load_base_article(cfg);
 
@@ -60,8 +64,11 @@ fn query_get_article_by_id() {
 fn query_find_one_article_by_handle() {
     let test_env = init_test_env();
     let cfg = &test_env.cfg;
-    let _db = ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
-    let mgr = CollectionsManager::new(cfg, TEST_SPACE, TEST_DB);
+
+    ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
+
+    // CORRECTION : On passe &test_env.storage
+    let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
 
     let base_doc = load_base_article(cfg);
     let target_handle = "handle-002";
@@ -98,8 +105,11 @@ fn query_find_one_article_by_handle() {
 fn query_find_many_with_sort_and_limit_simulated() {
     let test_env = init_test_env();
     let cfg = &test_env.cfg;
-    let _db = ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
-    let mgr = CollectionsManager::new(cfg, TEST_SPACE, TEST_DB);
+
+    ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
+
+    // CORRECTION : On passe &test_env.storage
+    let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
 
     let base_doc = load_base_article(cfg);
 

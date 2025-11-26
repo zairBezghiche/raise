@@ -47,7 +47,8 @@ async fn query_get_article_by_id() {
     // 💡 CORRECTION : Initialisation physique de la DB avant utilisation
     ensure_db_exists(&test_env.cfg, TEST_SPACE, TEST_DB);
 
-    let mgr = CollectionsManager::new(&test_env.cfg, TEST_SPACE, TEST_DB);
+    // CORRECTION : On passe &test_env.storage au lieu de cfg
+    let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
     let base_doc = load_test_doc(&test_env.cfg);
 
     let handle = "query-get-id";
@@ -65,7 +66,8 @@ async fn query_find_one_article_by_handle() {
     // 💡 CORRECTION : Initialisation physique de la DB
     ensure_db_exists(&test_env.cfg, TEST_SPACE, TEST_DB);
 
-    let mgr = CollectionsManager::new(&test_env.cfg, TEST_SPACE, TEST_DB);
+    // CORRECTION : On passe &test_env.storage au lieu de cfg
+    let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
     let base_doc = load_test_doc(&test_env.cfg);
 
     let handle = "query-find-one";
@@ -106,7 +108,8 @@ async fn query_find_many_with_sort_and_limit() {
     // 💡 CORRECTION : Initialisation physique de la DB
     ensure_db_exists(&test_env.cfg, TEST_SPACE, TEST_DB);
 
-    let mgr = CollectionsManager::new(&test_env.cfg, TEST_SPACE, TEST_DB);
+    // CORRECTION : On passe &test_env.storage au lieu de cfg
+    let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
     let base_doc = load_test_doc(&test_env.cfg);
 
     for i in 0..5 {

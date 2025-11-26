@@ -1,6 +1,5 @@
-// src/services/json-db/collection-service.ts
-
 import { invoke } from '@tauri-apps/api/core';
+import type { Query } from './query-service';
 
 const DEFAULT_SPACE = 'un2';
 const DEFAULT_DB = '_system';
@@ -8,6 +7,13 @@ const DEFAULT_DB = '_system';
 export interface Document<T = any> {
   id: string;
   [key: string]: T | any;
+}
+
+export interface QueryResult<T = any> {
+  documents: T[];
+  total_count: number;
+  offset: number;
+  limit: number | null;
 }
 
 export class CollectionService {
@@ -40,6 +46,27 @@ export class CollectionService {
       db: DEFAULT_DB,
       collection,
     });
+  }
+
+  /**
+   * Exécute une requête complexe via le moteur de recherche backend.
+   * @param collection Nom de la collection
+   * @param query Objet Query construit via createQuery()
+   */
+  async queryDocuments(collection: string, query: Query): Promise<Document[]> {
+    // On s'assure que le champ collection est bien rempli dans l'objet Query
+    const queryObj = { ...query, collection };
+
+    // Appel de la commande Rust
+    // Note : le paramètre '_bucket' est un placeholder requis par la signature Rust actuelle
+    const result = await invoke<QueryResult>('jsondb_query_collection', {
+      space: DEFAULT_SPACE,
+      db: DEFAULT_DB,
+      _bucket: collection,
+      queryJson: JSON.stringify(queryObj),
+    });
+
+    return result.documents;
   }
 }
 

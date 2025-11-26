@@ -5,7 +5,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::json_db::storage::{file_storage, JsonDbConfig};
+// Ajout de StorageEngine aux imports
+use crate::json_db::storage::{file_storage, JsonDbConfig, StorageEngine};
 
 // Constantes partagées pour les tests
 pub const TEST_SPACE: &str = "tests";
@@ -15,6 +16,8 @@ static ENV_INIT_LOCK: Mutex<()> = Mutex::new(());
 
 pub struct TestEnv {
     pub cfg: JsonDbConfig,
+    // NOUVEAU : On expose le moteur de stockage pour les tests
+    pub storage: StorageEngine,
     pub tmp_root: PathBuf,
     pub space: String,
     pub db: String,
@@ -62,11 +65,15 @@ pub fn init_test_env() -> TestEnv {
     let repo_root = find_repo_root(&manifest);
     let cfg = JsonDbConfig::from_env(&repo_root).expect("JsonDbConfig::from_env");
 
+    // NOUVEAU : Initialisation du StorageEngine avec la config
+    let storage = StorageEngine::new(cfg.clone());
+
     // On relâche le lock ici
     drop(_guard);
 
     TestEnv {
         cfg,
+        storage,
         tmp_root: tmp,
         space: TEST_SPACE.to_string(),
         db: TEST_DB.to_string(),

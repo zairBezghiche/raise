@@ -8,11 +8,12 @@ use std::path::PathBuf;
 use tracing_subscriber::{fmt, EnvFilter};
 use uuid::Uuid;
 
+// Imports mis à jour
 use genaptitude::json_db::{
     collections::manager::CollectionsManager,
     query::parser::parse_sort_specs,
     query::{Query, QueryEngine, SortField, SortOrder},
-    storage::{file_storage, JsonDbConfig},
+    storage::{file_storage, JsonDbConfig, StorageEngine}, // Ajout de StorageEngine
     transactions::TransactionManager,
 };
 
@@ -180,7 +181,8 @@ enum CliOperationRequest {
 
 // --- Helpers ---
 
-fn build_cfg(repo_root_opt: Option<PathBuf>) -> Result<JsonDbConfig> {
+// Retourne un StorageEngine complet au lieu de JsonDbConfig seul
+fn build_engine(repo_root_opt: Option<PathBuf>) -> Result<StorageEngine> {
     let repo = match repo_root_opt {
         Some(p) => p,
         None => std::env::current_dir()?,
@@ -189,7 +191,7 @@ fn build_cfg(repo_root_opt: Option<PathBuf>) -> Result<JsonDbConfig> {
     if std::env::var("PATH_GENAPTITUDE_DOMAIN").is_err() {
         bail!("PATH_GENAPTITUDE_DOMAIN non défini");
     }
-    Ok(cfg)
+    Ok(StorageEngine::new(cfg))
 }
 
 fn init_tracing() {
@@ -215,7 +217,7 @@ fn expand_path(path: &str) -> PathBuf {
 fn ensure_id(doc: &mut Value) -> String {
     let id = match doc.get("id").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
-        None => Uuid::new_v4().to_string(), // Utilisation correcte de l'import Uuid
+        None => Uuid::new_v4().to_string(),
     };
     if let Some(obj) = doc.as_object_mut() {
         obj.insert("id".to_string(), Value::String(id.clone()));
@@ -223,15 +225,14 @@ fn ensure_id(doc: &mut Value) -> String {
     id
 }
 
-// ... (La fonction run_seed_dir et usages() restent inchangés, je les omets pour la concision) ...
-// Tu peux les garder tels quels dans ton fichier.
+// CORRECTION : run_seed_dir prend maintenant &StorageEngine
 fn run_seed_dir(
-    cfg: &JsonDbConfig,
+    storage: &StorageEngine,
     space: &str,
     db: &str,
     dataset_rel_dir: &PathBuf,
 ) -> Result<()> {
-    let mgr = CollectionsManager::new(cfg, space, db);
+    let mgr = CollectionsManager::new(storage, space, db);
     let abs_dataset_dir = if dataset_rel_dir.is_absolute() {
         dataset_rel_dir.clone()
     } else {
@@ -282,18 +283,18 @@ async fn main() -> Result<()> {
     init_tracing();
 
     let cli = Cli::parse();
-    let cfg = build_cfg(cli.repo_root.clone())?;
+    // CORRECTION : build_engine au lieu de build_cfg
+    let storage = build_engine(cli.repo_root.clone())?;
+    let cfg = &storage.config;
 
     match cli.cmd {
-        // ... (Les commandes Db, Collection, Document, Query, Sql, Dataset restent inchangées) ...
-        // Je les reprends pour la complétude
         Cmd::Db { action } => match action {
             DbAction::Create { space, db } => {
-                file_storage::create_db(&cfg, &space, &db)?;
+                file_storage::create_db(cfg, &space, &db)?;
                 println!("✅ DB créée: {}/{}", space, db);
             }
             DbAction::Open { space, db } => {
-                let h = file_storage::open_db(&cfg, &space, &db)?;
+                let h = file_storage::open_db(cfg, &space, &db)?;
                 println!(
                     "✅ DB ouverte: {}/{} → {}",
                     h.space,
@@ -307,7 +308,7 @@ async fn main() -> Result<()> {
                 } else {
                     file_storage::DropMode::Soft
                 };
-                file_storage::drop_db(&cfg, &space, &db, mode)?;
+                file_storage::drop_db(cfg, &space, &db, mode)?;
                 println!("✅ DB supprimée.");
             }
             DbAction::Query {
@@ -320,8 +321,9 @@ async fn main() -> Result<()> {
                 limit,
                 latest,
             } => {
-                file_storage::open_db(&cfg, &space, &db)?;
-                let mgr = CollectionsManager::new(&cfg, &space, &db);
+                file_storage::open_db(cfg, &space, &db)?;
+                // CORRECTION : CollectionsManager prend &storage
+                let mgr = CollectionsManager::new(&storage, &space, &db);
                 let engine = QueryEngine::new(&mgr);
 
                 let filter = if let Some(raw) = filter_json {
@@ -372,8 +374,11 @@ async fn main() -> Result<()> {
                 name,
                 schema,
             } => {
-                file_storage::open_db(&cfg, &space, &db)?;
-                file_storage::create_collection(&cfg, &space, &db, &name, &schema)?;
+                file_storage::open_db(cfg, &space, &db)?;
+                // On utilise create_collection du manager qui gère aussi l'index système via file_storage
+                // Mais ici l'appel CLI direct file_storage::create_collection est aussi valide pour le bas niveau
+                // Pour la cohérence cache, utilisons le manager si possible, ou invalidons le cache (mais CLI est one-shot)
+                file_storage::create_collection(cfg, &space, &db, &name, &schema)?;
                 println!("✅ Collection créée: {}", name);
             }
         },
@@ -384,8 +389,9 @@ async fn main() -> Result<()> {
                 schema,
                 file,
             } => {
-                file_storage::open_db(&cfg, &space, &db)?;
-                let mgr = CollectionsManager::new(&cfg, &space, &db);
+                file_storage::open_db(cfg, &space, &db)?;
+                // CORRECTION : CollectionsManager prend &storage
+                let mgr = CollectionsManager::new(&storage, &space, &db);
                 let doc: Value = serde_json::from_reader(File::open(file)?)?;
                 let stored = mgr.insert_with_schema(&schema, doc)?;
                 println!(
@@ -399,8 +405,9 @@ async fn main() -> Result<()> {
                 schema,
                 file,
             } => {
-                file_storage::open_db(&cfg, &space, &db)?;
-                let mgr = CollectionsManager::new(&cfg, &space, &db);
+                file_storage::open_db(cfg, &space, &db)?;
+                // CORRECTION : CollectionsManager prend &storage
+                let mgr = CollectionsManager::new(&storage, &space, &db);
                 let doc: Value = serde_json::from_reader(File::open(file)?)?;
                 let stored = mgr.upsert_with_schema(&schema, doc)?;
                 println!(
@@ -411,8 +418,9 @@ async fn main() -> Result<()> {
         },
         Cmd::Query { action } => match action {
             QueryAction::FindMany { space, db, file } => {
-                file_storage::open_db(&cfg, &space, &db)?;
-                let mgr = CollectionsManager::new(&cfg, &space, &db);
+                file_storage::open_db(cfg, &space, &db)?;
+                // CORRECTION : CollectionsManager prend &storage
+                let mgr = CollectionsManager::new(&storage, &space, &db);
                 let engine = QueryEngine::new(&mgr);
                 let query: Query = serde_json::from_reader(File::open(file)?)?;
                 let result = engine.execute_query(query).await?;
@@ -431,23 +439,19 @@ async fn main() -> Result<()> {
                 db,
                 dataset_rel_dir,
             } => {
-                file_storage::open_db(&cfg, &space, &db)?;
-                run_seed_dir(&cfg, &space, &db, &dataset_rel_dir)?;
+                file_storage::open_db(cfg, &space, &db)?;
+                // CORRECTION : run_seed_dir prend &storage
+                run_seed_dir(&storage, &space, &db, &dataset_rel_dir)?;
             }
         },
         Cmd::Sql { action: _ } => println!("⚠️ SQL not implemented"),
         Cmd::Usage => usages(),
 
-        // --- MISE À JOUR IMPORTANTE ---
         Cmd::Transaction { action } => match action {
             TransactionAction::Execute { space, db, file } => {
-                // 1. CHARGEMENT ENV & CONFIG
-                // On s'assure que le .env est chargé pour avoir accès à PATH_GENAPTITUDE_DATASET
-                file_storage::open_db(&cfg, &space, &db)?;
-                let tm = TransactionManager::new(&cfg, &space, &db);
+                file_storage::open_db(cfg, &space, &db)?;
+                let tm = TransactionManager::new(cfg, &space, &db);
 
-                // 2. EXPANSION DU CHEMIN DU FICHIER DE TRANSACTION
-                // C'est ici qu'on permet l'utilisation de $PATH_GENAPTITUDE_DATASET dans l'argument CLI
                 let file_str = file.to_string_lossy();
                 let expanded_file_path = expand_path(&file_str);
 
@@ -480,7 +484,6 @@ async fn main() -> Result<()> {
                                 println!(" + Insert: {}/{}", collection, id);
                             }
                             CliOperationRequest::InsertFrom { collection, path } => {
-                                // Expansion également pour les chemins DANS le fichier JSON
                                 let expanded_path = expand_path(&path);
                                 let content = fs::read_to_string(&expanded_path)
                                     .with_context(|| {

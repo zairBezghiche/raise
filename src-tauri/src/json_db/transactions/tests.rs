@@ -6,28 +6,25 @@ use serde_json::json;
 
 // Helper pour initialiser une collection avec un schéma valide
 fn setup_collection(cm: &CollectionsManager, name: &str) {
-    // On utilise un schéma existant dans le projet (ex: actors/actor.schema.json)
-    // car le test_utils::init_test_env copie les schémas réels.
-    // Si vous n'avez pas ce schéma, il faut en créer un dummy.
-    // Supposons que 'actors/actor.schema.json' existe.
-
-    // Note : Dans le vrai code, create_collection sans argument utilise "unknown".
-    // Ici on contourne en appelant la version bas niveau ou en créant le fichier "unknown".
-
     // Option la plus robuste pour le test : créer un fichier schéma minimal
+    // CORRECTION : Accès via cm.storage.config
     let schema_path = cm
-        .cfg
+        .storage
+        .config
         .db_schemas_root(&cm.space, &cm.db)
         .join("minimal.json");
+
     std::fs::write(&schema_path, r#"{"type":"object"}"#).expect("write dummy schema");
 
     // Maintenant on peut créer la collection liée à ce schéma
-    file_storage::create_collection(cm.cfg, &cm.space, &cm.db, name, "minimal.json")
+    // CORRECTION : Accès via cm.storage.config
+    file_storage::create_collection(&cm.storage.config, &cm.space, &cm.db, name, "minimal.json")
         .expect("create collection with schema");
 
-    // On force aussi la création des index (normalement fait par le manager)
+    // On force aussi la création des index
+    // CORRECTION : Accès via cm.storage.config
     crate::json_db::indexes::create_collection_indexes(
-        cm.cfg,
+        &cm.storage.config,
         &cm.space,
         &cm.db,
         name,
@@ -45,8 +42,9 @@ fn test_transaction_commit_success() {
 
     file_storage::create_db(cfg, space, db).expect("create db");
 
-    let cm = CollectionsManager::new(cfg, space, db);
-    setup_collection(&cm, "users"); // <--- Utilisation du helper
+    // CORRECTION : On passe &env.storage au lieu de cfg
+    let cm = CollectionsManager::new(&env.storage, space, db);
+    setup_collection(&cm, "users");
 
     let tm = TransactionManager::new(cfg, space, db);
 
@@ -93,8 +91,9 @@ fn test_transaction_rollback_on_error() {
 
     file_storage::create_db(cfg, space, db).expect("create db");
 
-    let cm = CollectionsManager::new(cfg, space, db);
-    setup_collection(&cm, "users"); // <--- Utilisation du helper
+    // CORRECTION : On passe &env.storage au lieu de cfg
+    let cm = CollectionsManager::new(&env.storage, space, db);
+    setup_collection(&cm, "users");
 
     // État initial
     let tm = TransactionManager::new(cfg, space, db);
@@ -141,8 +140,9 @@ fn test_wal_persistence() {
     file_storage::create_db(&env.cfg, &env.space, &env.db).expect("create db");
 
     let tm = TransactionManager::new(&env.cfg, &env.space, &env.db);
-    let cm = CollectionsManager::new(&env.cfg, &env.space, &env.db);
-    setup_collection(&cm, "logs"); // <--- Utilisation du helper
+    // CORRECTION : On passe &env.storage au lieu de &env.cfg
+    let cm = CollectionsManager::new(&env.storage, &env.space, &env.db);
+    setup_collection(&cm, "logs");
 
     tm.execute(|tx| {
         tx.add_insert(

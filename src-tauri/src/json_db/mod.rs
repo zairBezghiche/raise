@@ -10,9 +10,9 @@
 use anyhow::Result;
 use std::path::Path;
 
-// --- Imports qui définissent la structure JsonDb (Résout L15/L17) ---
-// Ces lignes sont nécessaires pour la définition de la struct JsonDb.
-use self::collections::manager::CollectionsManager; // Ligne 15
+// --- Imports qui définissent la structure JsonDb ---
+use self::collections::manager::CollectionsManager;
+// CORRECTION : On retire StorageEngine d'ici car il est importé via le `pub use` plus bas
 use self::storage::JsonDbConfig;
 
 // Déclarations des modules
@@ -27,27 +27,36 @@ pub mod transactions;
 
 #[doc(hidden)]
 pub mod test_utils;
+
 // ===========================================================================
-// STRUCTURE PRINCIPALE : JsonDb (Définition UNIQUE - L35)
+// STRUCTURE PRINCIPALE : JsonDb
 // ===========================================================================
 
 /// La structure principale de la base de données JSON.
+/// Agit comme une façade de haut niveau et détient le moteur de stockage (et son cache).
 #[derive(Debug, Clone)]
 pub struct JsonDb {
-    // Définition du type (L35)
-    config: JsonDbConfig,
+    pub storage: StorageEngine,
 }
 
 impl JsonDb {
     /// Crée une nouvelle instance de JsonDb en chargeant la configuration.
     pub fn new(repo_root: impl AsRef<Path>) -> Result<Self> {
         let config = JsonDbConfig::from_env(repo_root)?;
-        Ok(Self { config })
+        // On initialise le StorageEngine (qui contient le cache)
+        let storage = StorageEngine::new(config);
+        Ok(Self { storage })
     }
 
     /// Crée un manager lié à un espace et une base de données spécifiques.
     pub fn collections_manager<'a>(&'a self, space: &str, db: &str) -> CollectionsManager<'a> {
-        CollectionsManager::new(&self.config, space, db)
+        // On passe le storage engine complet
+        CollectionsManager::new(&self.storage, space, db)
+    }
+
+    /// Accès direct à la configuration pour compatibilité
+    pub fn config(&self) -> &JsonDbConfig {
+        &self.storage.config
     }
 }
 
@@ -55,12 +64,9 @@ impl JsonDb {
 // RÉ-EXPORTATIONS PUBLIQUES (API Facade)
 // ===========================================================================
 
-// 💡 EXPORT 2: Types de requête (Résout L64)
 pub use self::query::{QueryEngine, QueryInput, QueryResult};
 
-// On exporte uniquement les types non conflictuels :
 pub use self::jsonld::JsonLdContext;
 pub use self::schema::SchemaValidator;
-pub use self::transactions::TransactionManager;
-// Note : StorageEngine et CollectionsManager sont désormais accessibles via leurs chemins complets.
 pub use self::storage::StorageEngine;
+pub use self::transactions::TransactionManager;

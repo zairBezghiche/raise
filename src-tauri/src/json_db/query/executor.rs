@@ -92,17 +92,24 @@ impl<'a> QueryExecutor<'a> {
             .get_indexes(&query.collection)
             .unwrap_or_default();
 
-        // Chercher une condition d'égalité (Eq) qui correspond à un index
+        // Optimisation : Chercher une condition qui peut utiliser un index
         for condition in &filter.conditions {
+            // 1. Cas classique : Égalité stricte (Hash / BTree)
             if matches!(condition.operator, ComparisonOperator::Eq) {
-                // Chercher un index correspondant au champ
                 if let Some(idx_def) = defined_indexes.iter().find(|idx| {
-                    idx.field_path == condition.field
-                        || idx.field_path == format!("/{}", condition.field)
+                    (idx.field_path == condition.field
+                        || idx.field_path == format!("/{}", condition.field))
+                        && (matches!(idx.index_type, IndexType::Hash)
+                            || matches!(idx.index_type, IndexType::BTree))
                 }) {
-                    // --- INDEX HIT ! ---
-                    let (cfg, space, db) =
-                        (self.manager.cfg, &self.manager.space, &self.manager.db);
+                    // --- INDEX HIT (Exact Match) ---
+                    // CORRECTION : Accès à la config via storage.config
+                    let (cfg, space, db) = (
+                        &self.manager.storage.config,
+                        &self.manager.space,
+                        &self.manager.db,
+                    );
+
                     let idx_path = paths::index_path(
                         cfg,
                         space,
@@ -111,32 +118,68 @@ impl<'a> QueryExecutor<'a> {
                         &idx_def.name,
                         idx_def.index_type,
                     );
-
                     let search_key = condition.value.to_string();
 
-                    let doc_ids_opt = match idx_def.index_type {
-                        IndexType::Hash | IndexType::Text => {
-                            let index: HashMap<String, Vec<String>> = driver::load(&idx_path)?;
-                            index.get(&search_key).cloned()
+                    // Chargement générique (bincode)
+                    let doc_ids: Vec<String> = match idx_def.index_type {
+                        IndexType::Hash => {
+                            let map: HashMap<String, Vec<String>> = driver::load(&idx_path)?;
+                            map.get(&search_key).cloned().unwrap_or_default()
                         }
                         IndexType::BTree => {
-                            let index: BTreeMap<String, Vec<String>> = driver::load(&idx_path)?;
-                            index.get(&search_key).cloned()
+                            let map: BTreeMap<String, Vec<String>> = driver::load(&idx_path)?;
+                            map.get(&search_key).cloned().unwrap_or_default()
                         }
+                        _ => vec![],
                     };
 
-                    if let Some(ids) = doc_ids_opt {
-                        let mut docs = Vec::new();
-                        for id in ids {
-                            if let Ok(doc) = self.manager.get(&query.collection, &id) {
-                                docs.push(doc);
-                            }
+                    // Fetch des documents
+                    let mut docs = Vec::new();
+                    for id in doc_ids {
+                        if let Ok(doc) = self.manager.get(&query.collection, &id) {
+                            docs.push(doc);
                         }
-                        return Ok(docs);
-                    } else {
-                        // Index existe mais clé non trouvée -> 0 résultat
-                        return Ok(Vec::new());
                     }
+                    return Ok(docs);
+                }
+            }
+
+            // 2. Cas Full-Text : Contains (Text Index)
+            // Si on cherche "mot" dans un champ indexé TEXT, on utilise l'index inversé
+            if matches!(condition.operator, ComparisonOperator::Contains) {
+                if let Some(idx_def) = defined_indexes.iter().find(|idx| {
+                    (idx.field_path == condition.field
+                        || idx.field_path == format!("/{}", condition.field))
+                        && matches!(idx.index_type, IndexType::Text)
+                }) {
+                    // --- INDEX HIT (Text Search) ---
+                    let (cfg, space, db) = (
+                        &self.manager.storage.config,
+                        &self.manager.space,
+                        &self.manager.db,
+                    );
+                    let idx_path = paths::index_path(
+                        cfg,
+                        space,
+                        db,
+                        &query.collection,
+                        &idx_def.name,
+                        IndexType::Text,
+                    );
+
+                    // Le "terme" de recherche est la valeur de la condition (en minuscule)
+                    let search_token = condition.value.as_str().unwrap_or("").to_lowercase();
+
+                    let index: HashMap<String, Vec<String>> = driver::load(&idx_path)?;
+                    let doc_ids = index.get(&search_token).cloned().unwrap_or_default();
+
+                    let mut docs = Vec::new();
+                    for id in doc_ids {
+                        if let Ok(doc) = self.manager.get(&query.collection, &id) {
+                            docs.push(doc);
+                        }
+                    }
+                    return Ok(docs);
                 }
             }
         }

@@ -6,29 +6,40 @@ Le module **`json_db`** est une base de données orientée documents JSON avec s
 
 ### Caractéristiques Principales
 
-- **Validation JSON Schema** : Support complet de JSON Schema avec résolution des `$ref` locaux et distants.
-- **Architecture Async & Thread-Safe** : Conçu pour l'environnement multi-thread de Tauri (utilisation de `RwLock`, types `Send + Sync`).
-- **Système `x_compute`** : Enrichissement automatique des documents (génération d'UUIDs, timestamps, concaténation, références).
-- **Stockage Fichier Atomique** : Écritures sécurisées via le pattern _Write-Tmp-Rename_ (pas de corruption en cas de crash).
-- **Moteur de Requêtes Asynchrone** : Filtrage, tri et pagination non-bloquants.
-- **Isolation** : Structure hiérarchique `Space` > `Database` > `Collection`.
+- **Stockage Souverain** : Données stockées sous forme de fichiers JSON lisibles, organisés par Espaces et Bases de données.
+- **Transactions ACID** : Garantie d'intégrité via un **Write-Ahead Log (WAL)** (`_wal.jsonl`) et des verrous au niveau collection.
+- **Moteur de Stockage (StorageEngine)** : Couche d'abstraction gérant la configuration et le cache en mémoire.
+- **Cache Thread-Safe** : Mise en cache des index et manifestes avec gestion de TTL (Time To Live) et capacité maximale.
+- **Indexation Hybride** : Index Hash, B-Tree et Textuels maintenus en mémoire pour des lectures rapides, persistés au format binaire (`bincode`).
+- **Moteur de Requêtes** : Filtrage complexe, tri, pagination et optimisation automatique (sélection d'index).
+- **Moteur `x_compute`** : Système de calcul de champs dérivé (UUID, Timestamps, Pointeurs) exécuté _avant_ la validation.
+- **Validation Schéma** : Validation stricte JSON Schema avec support des références croisées (`$ref`).
 
 ---
 
 ## 🏗️ Architecture Générale
 
-### Structure Modulaire
+Le système repose sur une séparation claire entre l'écriture (synchrone/atomique) et la lecture (asynchrone/indexée).
 
-```
-json_db/
-├── collections/      # Gestionnaire de collections (Façade Thread-Safe)
-├── query/           # Moteur de requêtes (Async)
-├── schema/          # Validation, Registre et logique x_compute
-├── storage/         # Configuration et I/O bas niveau (Atomic writes)
-├── jsonld/          # Support du contexte sémantique
-├── transactions/    # (Placeholder) Gestion ACID future
-└── indexes/         # (Placeholder) Indexation BTree/Hash
-```
+### Arborescence Physique
+
+Les données sont stockées selon la structure suivante (définie par la variable d'environnement `PATH_GENAPTITUDE_DOMAIN`) :
+
+````text
+<domain_root>/
+  ├── <space>/                  # Espace de travail (ex: "un2")
+  │   ├── <database>/           # Base de données (ex: "_system")
+  │   │   ├── _system.json      # Manifeste de la base (liste des collections/fichiers)
+  │   │   ├── _wal.jsonl        # Journal des transactions (Append-Only)
+  │   │   ├── schemas/
+  │   │   │   └── v1/           # Registre local des schémas JSON
+  │   │   └── collections/
+  │   │       └── <collection>/ # Dossier de collection (ex: "actors")
+  │   │           ├── _config.json # Définition des index
+  │   │           ├── _indexes/    # Fichiers d'index binaires (.idx)
+  │   │           ├── <uuid>.json  # Documents unitaires
+  │   │           └── ...
+
 
 ### Modèle de Concurrence
 
@@ -75,7 +86,7 @@ let doc = mgr.get("actors", "uuid-123")?;
 // Listing
 let ids = mgr.list_ids("actors")?;
 let docs = mgr.list_all("actors")?; // Attention: charge tout en mémoire
-```
+````
 
 ### 2. Module `query` (Moteur de Recherche)
 
