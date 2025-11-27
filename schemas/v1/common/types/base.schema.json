@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://genaptitude.local/schemas/v1/common/base.schema.json",
+  "title": "Base Entity",
+  "description": "Socle commun héritant des types primitifs calculés",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "$ref": "./types/primitive-types.schema.json#/$defs/instanceSchemaUri"
+    },
+    "id": {
+      "$ref": "./types/primitive-types.schema.json#/$defs/_id"
+    },
+    "createdAt": {
+      "$ref": "./types/primitive-types.schema.json#/$defs/createdAt"
+    },
+    "updatedAt": {
+      "$ref": "./types/primitive-types.schema.json#/$defs/updatedAt"
+    }
+  },
+  "required": ["id", "createdAt", "updatedAt"]
+}

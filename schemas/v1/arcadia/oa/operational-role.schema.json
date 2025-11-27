@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/activity.schema.json",
-  "title": "Operational Activity",
-  "description": "Une tâche ou action effectuée par un Acteur ou une Entité.",
+  "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/operational-role.schema.json",
+  "title": "Operational Role",
+  "description": "Ensemble cohérent de responsabilités et d'activités, endossé par un ou plusieurs acteurs.",
   "type": "object",
   "allOf": [
     {
@@ -13,26 +13,27 @@
     }
   ],
   "properties": {
-    "inputs": {
+    "allocatedActivities": {
       "type": "array",
       "items": {
         "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref"
       },
-      "description": "Flux entrants (Operational Exchanges)."
+      "description": "Activités opérationnelles qui définissent ce rôle."
     },
-    "outputs": {
+    "playedBy": {
       "type": "array",
       "items": {
         "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref"
       },
-      "description": "Flux sortants (Operational Exchanges)."
+      "description": "Acteurs ou Entités qui jouent ce rôle dans le contexte actuel."
     },
-    "allocatedTo": {
+    "involvedInExchanges": {
       "type": "array",
       "items": {
         "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref"
       },
-      "description": "Référence vers l'Acteur ou l'Entité réalisant cette activité."
+      "description": "Interactions (Operational Exchanges) spécifiques à ce rôle."
     }
-  }
+  },
+  "required": ["name"]
 }

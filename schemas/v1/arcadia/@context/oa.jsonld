@@ -25,6 +25,7 @@
     "OperationalEntity": "oa:OperationalEntity",
     "OperationalProcess": "oa:OperationalProcess",
     "OperationalExchange": "oa:OperationalExchange",
+    "OperationalRole": "oa:OperationalRole",
     "name": {
       "@id": "skos:prefLabel",
       "@type": "xsd:string"
@@ -179,6 +180,11 @@
     "role": {
       "@id": "oa:actorRole",
       "@type": "@vocab"
+    },
+    "playedBy": {
+      "@id": "oa:playedBy",
+      "@type": "@id",
+      "@container": "@set"
     },
     "activity": {
       "@id": "oa:activity",

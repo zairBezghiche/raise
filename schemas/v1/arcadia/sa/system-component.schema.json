@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/entity.schema.json",
-  "title": "Operational Entity",
-  "description": "Une organisation, un service ou un groupe contenant des acteurs ou d'autres entités.",
+  "$id": "https://genaptitude.local/schemas/v1/arcadia/sa/system-component.schema.json",
+  "title": "System Component",
+  "description": "Le système lui-même, vu comme une boîte noire.",
   "type": "object",
   "allOf": [
     {
@@ -13,19 +13,20 @@
     }
   ],
   "properties": {
-    "composition": {
+    "realizedEntities": {
       "type": "array",
       "items": {
         "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref"
       },
-      "description": "Sous-entités ou Acteurs contenus dans cette entité."
+      "description": "Traçabilité : Entités Opérationnelles (OA) couvertes par le système."
     },
-    "allocatedActivities": {
+    "allocatedFunctions": {
       "type": "array",
       "items": {
         "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref"
       },
-      "description": "Activités opérationnelles allouées à cette entité."
+      "description": "Fonctions allouées au système."
     }
-  }
+  },
+  "required": ["name"]
 }

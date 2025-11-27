@@ -20,6 +20,17 @@
       "mbse": "http://www.omg.org/spec/SysML/",
       "id": "@id",
       "type": "@type",
+      "Requirement": "arcadia:Requirement",
+      "Constraint": "arcadia:Constraint",
+      "reqId": "arcadia:requirementId",
+      "statement": "arcadia:requirementStatement",
+      "rationale": "arcadia:rationale",
+      "TestProcedure": "arcadia:TestProcedure",
+      "TestExecution": "arcadia:TestExecution",
+      "TestCampaign": "arcadia:TestCampaign",
+      "verdict": "arcadia:testVerdict",
+      "QualityRule": "arcadia:QualityRule",
+      "QualityAssessment": "arcadia:QualityAssessment",
       "realizes": {
         "@id": "arcadia:realizes",
         "@type": "@id",
@@ -33,6 +44,35 @@
       "belongsToLayer": {
         "@id": "arcadia:belongsToLayer",
         "@type": "@id"
+      },
+      "satisfiedBy": {
+        "@id": "arcadia:satisfiedBy",
+        "@type": "@id",
+        "@container": "@set"
+      },
+      "verifiedBy": {
+        "@id": "arcadia:verifiedBy",
+        "@type": "@id",
+        "@container": "@set"
+      },
+      "constrainedElements": {
+        "@id": "arcadia:constrains",
+        "@type": "@id",
+        "@container": "@set"
+      },
+      "verifies": {
+        "@id": "arcadia:verifies",
+        "@type": "@id",
+        "@container": "@set"
+      },
+      "assessedElement": {
+        "@id": "arcadia:assessedElement",
+        "@type": "@id"
+      },
+      "violations": {
+        "@id": "arcadia:violatesRule",
+        "@type": "@id",
+        "@container": "@set"
       }
     },
     "oa.jsonld",

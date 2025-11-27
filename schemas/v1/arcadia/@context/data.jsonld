@@ -38,6 +38,7 @@
     "QuantityKind": "data:QuantityKind",
     "ExchangeItem": "data:ExchangeItem",
     "ExchangeItemElement": "data:ExchangeItemElement",
+    "exchangeMechanism": "data:exchangeMechanism",
     "name": {
       "@id": "skos:prefLabel",
       "@type": "xsd:string"

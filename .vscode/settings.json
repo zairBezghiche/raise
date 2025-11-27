@@ -2,5 +2,6 @@
   "git.enabled": true,
   "git.path": "/usr/bin/git",
   "git.autoRepositoryDetection": true,
-  "typescript.tsdk": "node_modules/typescript/lib"
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "json.validation.enable": false
 }

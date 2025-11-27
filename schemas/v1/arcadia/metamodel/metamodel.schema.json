@@ -2,84 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://genaptitude.local/schemas/v1/arcadia/metamodel/metamodel.schema.json",
   "title": "Arcadia Metamodel (Shared Definitions)",
-  "x_schemaVersion": "1.0.0",
   "type": "object",
   "$defs": {
-    "Identifier": {
-      "type": "string",
-      "minLength": 1,
-      "description": "Logical identifier. Use UUIDv4 or a deterministic mapping from source (e.g., Capella XMI)."
-    },
-    "Name": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 256
-    },
-    "Summary": {
-      "type": "string",
-      "maxLength": 2000
-    },
-    "DescriptionHTML": {
-      "type": "string",
-      "contentMediaType": "text/html",
-      "description": "Rich text, HTML allowed."
-    },
-    "Tags": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "uniqueItems": true,
-      "default": []
-    },
-    "Timestamp": {
-      "type": "string",
-      "format": "date-time"
-    },
-    "Traceability": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "createdAt": {
-          "$ref": "#/$defs/Timestamp"
-        },
-        "createdBy": {
-          "type": "string"
-        },
-        "updatedAt": {
-          "$ref": "#/$defs/Timestamp"
-        },
-        "updatedBy": {
-          "type": "string"
-        }
-      }
-    },
     "Ref": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "layer": {
-          "type": "string",
-          "enum": [
-            "oa",
-            "sa",
-            "la",
-            "pa",
-            "epbs"
-          ]
-        },
-        "type": {
-          "type": "string"
-        },
-        "id": {
-          "$ref": "#/$defs/Identifier"
-        }
-      },
-      "required": [
-        "layer",
-        "type",
-        "id"
-      ]
+      "title": "Reference",
+      "description": "Référence unique vers un autre élément (URI ou UUID).",
+      "$ref": "../../common/types/primitive-types.schema.json#/$defs/uriReference"
     },
     "RelationshipKind": {
       "type": "string",
@@ -109,44 +37,50 @@
           "$ref": "#/$defs/Ref"
         },
         "tags": {
-          "$ref": "#/$defs/Tags"
+          "type": "array",
+          "items": {
+            "$ref": "../../common/types/primitive-types.schema.json#/$defs/nonEmptyString"
+          }
         },
         "summary": {
-          "$ref": "#/$defs/Summary"
+          "$ref": "../../common/types/primitive-types.schema.json#/$defs/i18nString"
         }
       },
-      "required": [
-        "kind",
-        "from",
-        "to"
-      ]
+      "required": ["kind", "from", "to"]
     },
     "BaseProperties": {
+      "description": "Propriétés fonctionnelles communes à tous les éléments Arcadia.",
       "type": "object",
       "properties": {
-        "_id": {
-          "$ref": "#/$defs/Identifier"
+        "xmi_id": {
+          "$ref": "../../common/types/primitive-types.schema.json#/$defs/xmiId"
         },
         "name": {
-          "$ref": "#/$defs/Name"
+          "$ref": "../../common/types/primitive-types.schema.json#/$defs/i18nString"
         },
         "summary": {
-          "$ref": "#/$defs/Summary"
+          "$ref": "../../common/types/primitive-types.schema.json#/$defs/i18nString"
         },
         "description": {
-          "$ref": "#/$defs/DescriptionHTML"
+          "$ref": "../../common/types/primitive-types.schema.json#/$defs/i18nString"
         },
         "tags": {
-          "$ref": "#/$defs/Tags"
+          "type": "array",
+          "items": {
+            "$ref": "../../common/types/primitive-types.schema.json#/$defs/nonEmptyString"
+          },
+          "uniqueItems": true,
+          "default": []
         },
-        "trace": {
-          "$ref": "#/$defs/Traceability"
+        "propertyValues": {
+          "type": "array",
+          "items": {
+            "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref"
+          },
+          "description": "Référence aux extensions PVMT (Property Values) attachées à cet élément."
         }
       },
-      "required": [
-        "_id",
-        "name"
-      ]
+      "required": ["name"]
     }
   }
 }

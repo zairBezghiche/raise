@@ -1,34 +1,33 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/actor.schema.json",
-  "title": "OA Actor",
-  "x_schemaVersion": "1.0.0",
-  "x_label": {
-    "fr": "Acteur OA",
-    "en": "OA Actor"
-  },
-  "x_description": {
-    "fr": "Acteur opérationnel (OA)."
-  },
+  "title": "Operational Actor",
+  "description": "Une entité externe (humaine ou non) qui interagit avec le système.",
   "type": "object",
   "allOf": [
     {
-      "$ref": "../metamodel/metamodel.schema.json#/$defs/BaseProperties"
+      "$ref": "../../common/base.schema.json"
     },
     {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "capella": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "xmi_id": {
-              "type": "string"
-            }
-          }
-        }
-      }
+      "$ref": "../metamodel/metamodel.schema.json#/$defs/BaseProperties"
     }
-  ]
+  ],
+  "properties": {
+    "isHuman": {
+      "type": "boolean",
+      "default": true,
+      "description": "Indique si l'acteur est un être humain ou un système externe."
+    },
+    "organization": {
+      "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref",
+      "description": "Référence vers l'Entité Opérationnelle parente."
+    },
+    "allocatedActivities": {
+      "type": "array",
+      "items": {
+        "$ref": "../../metamodel/metamodel.schema.json#/$defs/Ref"
+      },
+      "description": "Activités opérationnelles effectuées par cet acteur."
+    }
+  }
 }
