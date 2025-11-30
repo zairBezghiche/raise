@@ -1,53 +1,67 @@
-use super::TransactionRecord;
 use crate::json_db::storage::JsonDbConfig;
-use anyhow::{Context, Result};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use crate::json_db::transactions::{Transaction, TransactionLog, TransactionStatus};
+use anyhow::Result;
+use std::fs;
 use std::path::PathBuf;
 
-/// Gestionnaire du Write-Ahead Log (WAL).
-/// Assure la durabilité des transactions.
-pub struct WalManager {
-    wal_path: PathBuf,
+/// Helper pour obtenir le chemin du dossier WAL
+fn get_wal_dir(config: &JsonDbConfig, space: &str, db: &str) -> PathBuf {
+    // CORRECTION : On utilise db_root() qui est défini dans JsonDbConfig
+    // L'ancienne méthode get_db_path() n'existe plus.
+    config.db_root(space, db).join("wal")
 }
 
-impl WalManager {
-    pub fn new(cfg: &JsonDbConfig, space: &str, db: &str) -> Self {
-        // Le fichier WAL est stocké à la racine de la DB
-        let wal_path = cfg.db_root(space, db).join("_wal.jsonl");
-        Self { wal_path }
+/// Écrit une transaction dans le journal (Write Ahead Log)
+pub fn write_entry(config: &JsonDbConfig, space: &str, db: &str, tx: &Transaction) -> Result<()> {
+    let dir = get_wal_dir(config, space, db);
+
+    // Création du dossier si inexistant
+    if !dir.exists() {
+        fs::create_dir_all(&dir)?;
     }
 
-    /// Écrit une transaction dans le log (append-only).
-    /// Cette opération est bloquante et synchronisée sur le disque.
-    pub fn log_transaction(&self, tx: &TransactionRecord) -> Result<()> {
-        // S'assurer que le dossier parent existe
-        if let Some(parent) = self.wal_path.parent() {
-            fs::create_dir_all(parent)?;
+    let file_path = dir.join(format!("{}.json", tx.id));
+
+    // Création de l'objet de log pour sérialisation
+    let log = TransactionLog {
+        id: tx.id.clone(),
+        status: TransactionStatus::Pending,
+        operations: tx.operations.clone(),
+        timestamp: chrono::Utc::now().timestamp(),
+    };
+
+    let content = serde_json::to_string_pretty(&log)?;
+    fs::write(file_path, content)?;
+
+    Ok(())
+}
+
+/// Supprime une entrée du WAL (utilisé lors du Commit ou Rollback)
+pub fn remove_entry(config: &JsonDbConfig, space: &str, db: &str, tx_id: &str) -> Result<()> {
+    let file_path = get_wal_dir(config, space, db).join(format!("{}.json", tx_id));
+
+    if file_path.exists() {
+        fs::remove_file(file_path)?;
+    }
+
+    Ok(())
+}
+
+/// (Optionnel) Charge les transactions en attente (pour la récupération au démarrage)
+pub fn list_pending(config: &JsonDbConfig, space: &str, db: &str) -> Result<Vec<String>> {
+    let dir = get_wal_dir(config, space, db);
+    let mut pending_ids = Vec::new();
+
+    if dir.exists() {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "json") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    pending_ids.push(stem.to_string());
+                }
+            }
         }
-
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.wal_path)
-            .with_context(|| format!("Impossible d'ouvrir le WAL: {:?}", self.wal_path))?;
-
-        // Sérialisation sur une seule ligne (JSONL)
-        let json = serde_json::to_string(tx)?;
-        writeln!(file, "{}", json)?;
-
-        // SYNC: Crucial pour l'ACID (Durabilité)
-        file.sync_all()?;
-
-        Ok(())
     }
-
-    /// Nettoie le WAL (à appeler après un succès complet ou au démarrage après recovery).
-    /// Pour l'instant, on supprime simplement le fichier.
-    pub fn clear_wal(&self) -> Result<()> {
-        if self.wal_path.exists() {
-            fs::remove_file(&self.wal_path)?;
-        }
-        Ok(())
-    }
+    Ok(pending_ids)
 }

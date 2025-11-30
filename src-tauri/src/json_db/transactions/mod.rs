@@ -1,19 +1,36 @@
-//! Gestion des transactions ACID
-//! Définit les types de données partagés pour les transactions.
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub mod lock_manager;
 pub mod manager;
-pub mod transaction;
 pub mod wal;
 
-// 💡 CORRECTION ICI : On ré-exporte le manager pour qu'il soit accessible via json_db::transactions::TransactionManager
-pub use manager::TransactionManager;
+#[cfg(test)]
+mod tests;
 
-/// Une opération atomique sur une collection
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Transaction {
+    pub id: String,
+    pub operations: Vec<Operation>,
+}
+
+impl Transaction {
+    pub fn new() -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            operations: Vec::new(),
+        }
+    }
+
+    pub fn add_insert(&mut self, collection: &str, id: &str, doc: Value) {
+        self.operations.push(Operation::Insert {
+            collection: collection.to_string(),
+            id: id.to_string(),
+            document: doc,
+        });
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Operation {
     Insert {
         collection: String,
@@ -23,32 +40,25 @@ pub enum Operation {
     Update {
         collection: String,
         id: String,
-        old_document: Option<Value>, // Pour rollback
-        new_document: Value,
-    },
+        document: Value,
+    }, // J'utilise 'document' ici pour être cohérent
     Delete {
         collection: String,
         id: String,
-        old_document: Option<Value>, // Pour rollback
     },
 }
 
-/// L'enregistrement complet d'une transaction (ce qui est écrit dans le WAL)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransactionRecord {
-    pub id: String,
-    pub operations: Vec<Operation>,
-    pub status: TransactionStatus,
-    pub started_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
 pub enum TransactionStatus {
     Pending,
     Committed,
-    RolledBack,
+    Rollback,
 }
 
-#[cfg(test)]
-mod tests;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionLog {
+    pub id: String,
+    pub status: TransactionStatus,
+    pub operations: Vec<Operation>,
+    pub timestamp: i64,
+}

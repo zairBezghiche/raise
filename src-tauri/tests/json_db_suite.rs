@@ -26,4 +26,10 @@ mod workunits_x_compute;
 #[path = "json_db_suite/schema_minimal.rs"]
 mod schema_minimal;
 
+#[path = "json_db_suite/dataset_integration.rs"]
+mod dataset_integration;
+
+#[path = "json_db_suite/json_db_sql.rs"]
+mod json_db_sql;
+
 // Rien d'autre : les #[test] dans ces modules seront automatiquement exécutés.

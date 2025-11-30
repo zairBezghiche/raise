@@ -1,112 +1,141 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::Mutex,
-    time::{SystemTime, UNIX_EPOCH},
-};
+// FICHIER : src-tauri/src/json_db/test_utils.rs
 
-// Ajout de StorageEngine aux imports
-use crate::json_db::storage::{file_storage, JsonDbConfig, StorageEngine};
+use crate::json_db::storage::{JsonDbConfig, StorageEngine};
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Once;
 
-// Constantes partagées pour les tests
-pub const TEST_SPACE: &str = "tests";
-pub const TEST_DB: &str = "testU";
+static INIT: Once = Once::new();
 
-static ENV_INIT_LOCK: Mutex<()> = Mutex::new(());
+pub const TEST_SPACE: &str = "test_space";
+pub const TEST_DB: &str = "test_db";
 
 pub struct TestEnv {
     pub cfg: JsonDbConfig,
-    // NOUVEAU : On expose le moteur de stockage pour les tests
     pub storage: StorageEngine,
-    pub tmp_root: PathBuf,
     pub space: String,
     pub db: String,
-}
-
-impl Drop for TestEnv {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.tmp_root);
-    }
-}
-
-fn tmp_root() -> PathBuf {
-    let base = std::env::temp_dir();
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let thread_id = std::thread::current().id();
-    let p = base.join(format!("jsondb_ut_{}_{:?}", ts, thread_id));
-    fs::create_dir_all(&p).expect("création du domaine temporaire");
-    p
-}
-
-fn find_repo_root(start: &Path) -> PathBuf {
-    let mut cur = Some(start);
-    while let Some(p) = cur {
-        if p.join("schemas").join("v1").is_dir() {
-            return p.to_path_buf();
-        }
-        cur = p.parent();
-    }
-    start.to_path_buf()
+    // Le TempDir est supprimé quand cette struct est drop, nettoyant le test
+    pub tmp_dir: tempfile::TempDir,
 }
 
 pub fn init_test_env() -> TestEnv {
-    let _guard = ENV_INIT_LOCK.lock().unwrap();
-    let tmp = tmp_root();
+    INIT.call_once(|| {
+        // Initialisation du logger pour les tests (optionnel)
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("info")
+            .with_test_writer()
+            .try_init();
+    });
 
-    // IMPORTANT: On set l'env var pour que JsonDbConfig::from_env la capte
-    unsafe {
-        std::env::set_var("PATH_GENAPTITUDE_DOMAIN", &tmp);
+    // 1. Création du dossier temporaire isolé
+    let tmp_dir = tempfile::tempdir().expect("create temp dir");
+    let data_root = tmp_dir.path().to_path_buf();
+
+    let cfg = JsonDbConfig {
+        data_root: data_root.clone(),
+    };
+
+    // --- 2. COPIE DES SCHÉMAS RÉELS ---
+    // On localise le dossier 'schemas/v1' à la racine du repo pour le copier dans l'env de test
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")); // src-tauri
+
+    // Recherche robuste : src-tauri/../schemas/v1 ou ./schemas/v1
+    let possible_paths = vec![
+        manifest_dir.join("../schemas/v1"),
+        manifest_dir.join("schemas/v1"),
+        PathBuf::from("schemas/v1"),
+    ];
+
+    let src_schemas = possible_paths.into_iter().find(|p| p.exists());
+
+    // Destination : <tmp>/test_space/test_db/_system/schemas/v1
+    let dest_schemas = cfg.db_schemas_root(TEST_SPACE, TEST_DB).join("v1");
+    fs::create_dir_all(&dest_schemas).expect("Failed to create schema dir in temp");
+
+    if let Some(src) = src_schemas {
+        copy_dir_recursive(&src, &dest_schemas).expect("Failed to copy schemas to test env");
+    } else {
+        eprintln!("⚠️ WARNING: Schemas source not found. Tests dependent on x_compute might fail.");
     }
 
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = find_repo_root(&manifest);
-    let cfg = JsonDbConfig::from_env(&repo_root).expect("JsonDbConfig::from_env");
+    // --- 3. CRÉATION DES DATASETS MOCKS ---
+    // On prépare des données de test directement dans le dossier temporaire
+    let dataset_root = data_root.join("dataset");
+    fs::create_dir_all(&dataset_root).unwrap();
 
-    // NOUVEAU : Initialisation du StorageEngine avec la config
+    // Mock Article (sans ID, pour tester la génération)
+    let article_path = dataset_root.join("arcadia/v1/data/articles/article.json");
+    if let Some(p) = article_path.parent() {
+        fs::create_dir_all(p).unwrap();
+    }
+    let mock_article = r#"{
+        "handle": "mock-handle",
+        "displayName": "Mock Article",
+        "slug": "mock-slug",
+        "title": "Mock Title",
+        "status": "draft",
+        "authorId": "00000000-0000-0000-0000-000000000000"
+    }"#;
+    fs::write(&article_path, mock_article).unwrap();
+
+    // Mock Exchange Item
+    let exchange_path = dataset_root.join("arcadia/v1/data/exchange-items/position_gps.json");
+    if let Some(p) = exchange_path.parent() {
+        fs::create_dir_all(p).unwrap();
+    }
+    fs::write(
+        &exchange_path,
+        r#"{ "name": "GPS Position", "exchangeMechanism": "Flow" }"#,
+    )
+    .unwrap();
+
     let storage = StorageEngine::new(cfg.clone());
-
-    // On relâche le lock ici
-    drop(_guard);
 
     TestEnv {
         cfg,
         storage,
-        tmp_root: tmp,
         space: TEST_SPACE.to_string(),
         db: TEST_DB.to_string(),
+        tmp_dir,
     }
 }
 
-/// Helper : S'assure que la DB existe physiquement (open ou create)
 pub fn ensure_db_exists(cfg: &JsonDbConfig, space: &str, db: &str) {
-    if file_storage::open_db(cfg, space, db).is_err() {
-        file_storage::create_db(cfg, space, db).expect("create_db dans ensure_db_exists");
+    let db_path = cfg.db_root(space, db);
+    if !db_path.exists() {
+        std::fs::create_dir_all(&db_path).unwrap();
     }
 }
 
-/// Helper : Récupère la racine du dataset de test depuis l'ENV ou fallback
-pub fn get_dataset_root() -> PathBuf {
-    // Charge le .env si présent
-    dotenvy::dotenv().ok();
+pub fn get_dataset_file(cfg: &JsonDbConfig, rel_path: &str) -> PathBuf {
+    let root = cfg.data_root.join("dataset");
+    let path = root.join(rel_path);
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+    }
+    path
+}
 
-    let path_str = std::env::var("PATH_GENAPTITUDE_DATASET").unwrap_or_else(|_| {
-        // Fallback intelligent : on essaie de trouver le dossier examples
-        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let repo = find_repo_root(&manifest);
-        repo.join("examples/oa_miniproc/data")
-            .to_string_lossy()
-            .to_string()
-    });
+/// Helper récursif pour copier les dossiers
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
 
-    let path_string = if path_str.starts_with("$HOME") {
-        let home = std::env::var("HOME").expect("HOME non défini");
-        path_str.replace("$HOME", &home)
-    } else {
-        path_str
-    };
-
-    PathBuf::from(path_string)
+        if ty.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }

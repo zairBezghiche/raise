@@ -1,17 +1,16 @@
 //! Primitives collections : gestion des dossiers et fichiers JSON d’une collection.
 //! Pas de logique x_compute/validate ici — uniquement persistance et I/O.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::json_db::storage::file_storage::atomic_write_json;
+use crate::json_db::storage::file_storage::atomic_write;
 use crate::json_db::storage::JsonDbConfig;
 
 /// Racine des collections : {db_root}/collections/{collection}
 pub fn collection_root(cfg: &JsonDbConfig, space: &str, db: &str, collection: &str) -> PathBuf {
-    // CORRECTION : On utilise directement cfg.db_root() qui pointe vers "un2/_system"
     cfg.db_root(space, db).join("collections").join(collection)
 }
 
@@ -32,64 +31,7 @@ pub fn create_collection_if_missing(
     Ok(())
 }
 
-/// Supprime une collection (danger : efface le dossier).
-pub fn drop_collection(cfg: &JsonDbConfig, space: &str, db: &str, collection: &str) -> Result<()> {
-    let root = collection_root(cfg, space, db, collection);
-    if root.exists() {
-        fs::remove_dir_all(&root).with_context(|| format!("remove_dir_all {}", root.display()))?;
-    }
-    Ok(())
-}
-
-/// Extrait l’id d’un document (doit être une string non vide).
-fn extract_id(doc: &Value) -> Result<String> {
-    let id = doc
-        .get("id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("document missing string field 'id'"))?;
-    if id.is_empty() {
-        return Err(anyhow!("document 'id' is empty"));
-    }
-    Ok(id.to_string())
-}
-
-/// Insert (échec si l’id existe déjà).
-pub fn persist_insert(
-    cfg: &JsonDbConfig,
-    space: &str,
-    db: &str,
-    collection: &str,
-    doc: &Value,
-) -> Result<()> {
-    let id = extract_id(doc)?;
-    let path = doc_path(cfg, space, db, collection, &id);
-    if path.exists() {
-        return Err(anyhow!("document with id '{}' already exists", id));
-    }
-    // Appel à la version partagée
-    atomic_write_json(&path, doc)?;
-    Ok(())
-}
-
-/// Update (échec si l’id n’existe pas) — remplacement complet du document.
-pub fn persist_update(
-    cfg: &JsonDbConfig,
-    space: &str,
-    db: &str,
-    collection: &str,
-    doc: &Value,
-) -> Result<()> {
-    let id = extract_id(doc)?;
-    let path = doc_path(cfg, space, db, collection, &id);
-    if !path.exists() {
-        return Err(anyhow!("document with id '{}' not found", id));
-    }
-    // Appel à la version partagée
-    atomic_write_json(&path, doc)?;
-    Ok(())
-}
-
-/// Get par id.
+/// Lit un document par son ID.
 pub fn read_document(
     cfg: &JsonDbConfig,
     space: &str,
@@ -98,13 +40,43 @@ pub fn read_document(
     id: &str,
 ) -> Result<Value> {
     let path = doc_path(cfg, space, db, collection, id);
-    let data = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    let json: Value =
-        serde_json::from_str(&data).with_context(|| format!("parse json {}", path.display()))?;
-    Ok(json)
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("Document introuvable : {}/{}", collection, id))?;
+
+    let doc: Value = serde_json::from_str(&content)
+        .with_context(|| format!("JSON invalide : {}", path.display()))?;
+
+    Ok(doc)
 }
 
-/// Delete par id (idempotent : OK si déjà absent).
+// --- FONCTIONS TRANSACTION MANAGER ---
+
+pub fn create_document(
+    cfg: &JsonDbConfig,
+    space: &str,
+    db: &str,
+    collection: &str,
+    id: &str,
+    document: &Value,
+) -> Result<()> {
+    create_collection_if_missing(cfg, space, db, collection)?;
+    let path = doc_path(cfg, space, db, collection, id);
+    let content = serde_json::to_string_pretty(document)?;
+    atomic_write(path, content.as_bytes())?;
+    Ok(())
+}
+
+pub fn update_document(
+    cfg: &JsonDbConfig,
+    space: &str,
+    db: &str,
+    collection: &str,
+    id: &str,
+    document: &Value,
+) -> Result<()> {
+    create_document(cfg, space, db, collection, id, document)
+}
+
 pub fn delete_document(
     cfg: &JsonDbConfig,
     space: &str,
@@ -114,12 +86,23 @@ pub fn delete_document(
 ) -> Result<()> {
     let path = doc_path(cfg, space, db, collection, id);
     if path.exists() {
-        fs::remove_file(&path).with_context(|| format!("remove_file {}", path.display()))?;
+        fs::remove_file(&path).with_context(|| format!("Suppression {}", path.display()))?;
     }
     Ok(())
 }
 
-/// Liste les ids (fichiers *.json).
+// --- AJOUT : Suppression de collection ---
+pub fn drop_collection(cfg: &JsonDbConfig, space: &str, db: &str, collection: &str) -> Result<()> {
+    let root = collection_root(cfg, space, db, collection);
+    if root.exists() {
+        fs::remove_dir_all(&root)
+            .with_context(|| format!("Suppression collection {}", root.display()))?;
+    }
+    Ok(())
+}
+
+// --- FONCTIONS UTILITAIRES ---
+
 pub fn list_document_ids(
     cfg: &JsonDbConfig,
     space: &str,
@@ -128,10 +111,12 @@ pub fn list_document_ids(
 ) -> Result<Vec<String>> {
     let root = collection_root(cfg, space, db, collection);
     let mut out = Vec::new();
+
     if !root.exists() {
         return Ok(out);
     }
-    for e in fs::read_dir(&root).with_context(|| root.display().to_string())? {
+
+    for e in fs::read_dir(&root)? {
         let e = e?;
         let p = e.path();
         if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("json") {
@@ -144,7 +129,6 @@ pub fn list_document_ids(
     Ok(out)
 }
 
-/// Liste et charge tous les documents (attention perfs).
 pub fn list_documents(
     cfg: &JsonDbConfig,
     space: &str,
@@ -161,23 +145,18 @@ pub fn list_documents(
     Ok(docs)
 }
 
-/// Liste tous les noms de collections (dossiers) existantes pour la DB.
 pub fn list_collection_names_fs(cfg: &JsonDbConfig, space: &str, db: &str) -> Result<Vec<String>> {
-    // CORRECTION : Utilisation directe de cfg.db_root()
     let root = cfg.db_root(space, db).join("collections");
     let mut out = Vec::new();
     if !root.exists() {
         return Ok(out);
     }
-
-    // Lire les dossiers
-    for e in fs::read_dir(&root).with_context(|| root.display().to_string())? {
+    for e in fs::read_dir(root)? {
         let e = e?;
-        let p = e.path();
-        if p.is_dir() {
-            // On ne veut que les dossiers
-            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                out.push(name.to_string());
+        let ty = e.file_type()?;
+        if ty.is_dir() {
+            if let Ok(name) = e.file_name().into_string() {
+                out.push(name);
             }
         }
     }

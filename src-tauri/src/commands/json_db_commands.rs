@@ -1,336 +1,157 @@
 //! JSON-DB Tauri commands
-//!
-//! Ces commandes exposent les opérations principales (CRUD) via Tauri.
-//! Elles utilisent désormais le StorageEngine injecté pour bénéficier du cache.
 
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{command, State};
 
-use crate::json_db::query::{QueryEngine, QueryInput, QueryResult};
-use crate::json_db::transactions::TransactionManager;
+use crate::json_db::collections::manager::CollectionsManager;
+use crate::json_db::query::sql::parse_sql;
+use crate::json_db::query::{Query, QueryEngine};
+use crate::json_db::storage::{file_storage, StorageEngine};
 
-use crate::json_db::{
-    collections::manager::CollectionsManager,
-    storage::{file_storage, StorageEngine},
-};
+#[derive(Serialize)]
+pub struct QueryResponse {
+    pub documents: Vec<Value>,
+    pub total: usize,
+}
 
-// -----------------------------
-// Helpers
-// -----------------------------
-
-/// Helper pour obtenir un manager lié (space, db) à partir du State global.
-/// Tente d'ouvrir la DB, et si elle n'existe pas, la crée.
 fn mgr<'a>(
     storage: &'a State<StorageEngine>,
     space: &str,
     db: &str,
 ) -> Result<CollectionsManager<'a>, String> {
-    // On accède à la config via le moteur de stockage
     let config = &storage.config;
-
-    // Logique "Open OR Create"
     if file_storage::open_db(config, space, db).is_err() {
         file_storage::create_db(config, space, db).map_err(|e| e.to_string())?;
     }
-
-    // On passe le StorageEngine (déréférencé du State) au manager
-    // CollectionsManager::new attend &StorageEngine
     Ok(CollectionsManager::new(storage.inner(), space, db))
 }
 
-// -----------------------------
-// Commandes Collections
-// -----------------------------
-
-/// Crée une collection si manquante
 #[command]
-pub fn jsondb_create_collection(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-    schema: Option<String>,
-) -> Result<(), String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.create_collection(&collection, schema)
-        .map_err(|e| e.to_string())
-}
-
-/// Supprime une collection (dossier)
-#[command]
-pub fn jsondb_drop_collection(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-) -> Result<(), String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.drop_collection(&collection).map_err(|e| e.to_string())
-}
-
-/// Liste des collections
-#[command]
-pub fn jsondb_list_collections(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-) -> Result<Vec<String>, String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.list_collection_names().map_err(|e| e.to_string())
-}
-
-// -----------------------------
-// Commandes CRUD
-// -----------------------------
-
-/// Insert avec schéma
-#[command]
-pub fn jsondb_insert_with_schema(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    schema_rel: String,
-    mut doc: Value,
-) -> Result<Value, String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.insert_with_schema(&schema_rel, doc.take())
-        .map_err(|e| e.to_string())
-}
-
-/// Upsert avec schéma
-#[command]
-pub fn jsondb_upsert_with_schema(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    schema_rel: String,
-    mut doc: Value,
-) -> Result<Value, String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.upsert_with_schema(&schema_rel, doc.take())
-        .map_err(|e| e.to_string())
-}
-
-/// Insert direct (sans schéma)
-#[command]
-pub fn jsondb_insert_raw(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-    doc: Value,
-) -> Result<(), String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.insert_raw(&collection, &doc).map_err(|e| e.to_string())
-}
-
-/// Update avec schéma
-#[command]
-pub fn jsondb_update_with_schema(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    schema_rel: String,
-    mut doc: Value,
-) -> Result<Value, String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.update_with_schema(&schema_rel, doc.take())
-        .map_err(|e| e.to_string())
-}
-
-/// Update direct (sans schéma)
-#[command]
-pub fn jsondb_update_raw(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-    doc: Value,
-) -> Result<(), String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.update_raw(&collection, &doc).map_err(|e| e.to_string())
-}
-
-/// Lecture par id
-#[command]
-pub fn jsondb_get(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-    id: String,
-) -> Result<Value, String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.get(&collection, &id).map_err(|e| e.to_string())
-}
-
-/// Suppression par id
-#[command]
-pub fn jsondb_delete(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-    id: String,
-) -> Result<(), String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.delete(&collection, &id).map_err(|e| e.to_string())
-}
-
-/// Liste des IDs d’une collection
-#[command]
-pub fn jsondb_list_ids(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-) -> Result<Vec<String>, String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.list_ids(&collection).map_err(|e| e.to_string())
-}
-
-/// Liste de tous les documents d’une collection
-#[command]
-pub fn jsondb_list_all(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    collection: String,
-) -> Result<Vec<Value>, String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.list_all(&collection).map_err(|e| e.to_string())
-}
-
-/// Rechargement du registre de schémas (force le refresh du cache interne du manager)
-#[command]
-pub fn jsondb_refresh_registry(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-) -> Result<(), String> {
-    let m = mgr(&storage, &space, &db)?;
-    m.refresh_registry().map_err(|e| e.to_string())
-}
-
-// -----------------------------
-// Alias pour compatibilité
-// -----------------------------
-
-#[command]
-pub fn jsondb_insert(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    schema_rel: String,
-    doc: Value,
-) -> Result<Value, String> {
-    jsondb_insert_with_schema(storage, space, db, schema_rel, doc)
-}
-
-#[command]
-pub fn jsondb_upsert(
-    storage: State<StorageEngine>,
-    space: String,
-    db: String,
-    schema_rel: String,
-    doc: Value,
-) -> Result<Value, String> {
-    jsondb_upsert_with_schema(storage, space, db, schema_rel, doc)
-}
-
-// -----------------------------
-// Moteur de Requêtes (Async)
-// -----------------------------
-
-#[command]
-pub async fn jsondb_query_collection(
+pub async fn jsondb_create_collection(
     storage: State<'_, StorageEngine>,
     space: String,
     db: String,
-    _bucket: String,
-    query_json: String,
-) -> Result<QueryResult, String> {
-    let query_input: QueryInput = match serde_json::from_str(&query_json) {
-        Ok(q) => q,
-        Err(e) => return Err(format!("Requête JSON invalide : {}", e)),
-    };
-
-    let m = mgr(&storage, &space, &db)?;
-    let engine = QueryEngine::new(&m);
-
-    match engine.execute_query(query_input).await {
-        Ok(result) => Ok(result),
-        Err(e) => Err(format!("Erreur d'exécution de la requête : {}", e)),
-    }
-}
-
-// -----------------------------
-// Transactions (ACID)
-// -----------------------------
-
-#[derive(serde::Deserialize)]
-pub struct TransactionRequest {
-    pub operations: Vec<OperationRequest>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum OperationRequest {
-    Insert { collection: String, doc: Value },
-    Update { collection: String, doc: Value },
-    Delete { collection: String, id: String },
+    collection: String,
+    schema_uri: Option<String>,
+) -> Result<String, String> {
+    let manager = mgr(&storage, &space, &db)?;
+    manager
+        .create_collection(&collection, schema_uri)
+        .map_err(|e| e.to_string())?;
+    Ok(format!("Collection '{}' created.", collection))
 }
 
 #[command]
-pub fn jsondb_execute_transaction(
-    storage: State<StorageEngine>,
+pub async fn jsondb_list_collections(
+    storage: State<'_, StorageEngine>,
     space: String,
     db: String,
-    request: TransactionRequest,
-) -> Result<(), String> {
-    // On utilise la config injectée dans le moteur de stockage
-    let cfg = &storage.config;
+) -> Result<Vec<String>, String> {
+    let manager = mgr(&storage, &space, &db)?;
+    manager.list_collections().map_err(|e| e.to_string())
+}
 
-    if crate::json_db::storage::file_storage::open_db(cfg, &space, &db).is_err() {
-        return Err(format!("Database {}/{} does not exist", space, db));
-    }
+#[command]
+pub async fn jsondb_insert_document(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+    collection: String,
+    document: Value,
+) -> Result<Value, String> {
+    let manager = mgr(&storage, &space, &db)?;
+    let inserted_doc = manager
+        .insert_with_schema(&collection, document)
+        .map_err(|e| format!("Insert Failed: {}", e))?;
+    Ok(inserted_doc)
+}
 
-    // TransactionManager utilise encore JsonDbConfig directement
-    let tm = TransactionManager::new(cfg, &space, &db);
+#[command]
+pub async fn jsondb_get_document(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+    collection: String,
+    id: String,
+) -> Result<Option<Value>, String> {
+    let manager = mgr(&storage, &space, &db)?;
+    manager
+        .get_document(&collection, &id)
+        .map_err(|e| e.to_string())
+}
 
-    tm.execute(|tx| {
-        for op in request.operations {
-            match op {
-                OperationRequest::Insert {
-                    collection,
-                    mut doc,
-                } => {
-                    let id = match doc.get("id").and_then(|v| v.as_str()) {
-                        Some(s) => s.to_string(),
-                        None => uuid::Uuid::new_v4().to_string(),
-                    };
+#[command]
+pub async fn jsondb_update_document(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+    collection: String,
+    id: String,
+    document: Value,
+) -> Result<Value, String> {
+    let manager = mgr(&storage, &space, &db)?;
+    manager
+        .update_document(&collection, &id, document)
+        .map_err(|e| format!("Update Failed: {}", e))
+}
 
-                    if let Some(obj) = doc.as_object_mut() {
-                        obj.insert("id".to_string(), serde_json::Value::String(id.clone()));
-                    }
-                    tx.add_insert(&collection, &id, doc);
-                }
-                OperationRequest::Update { collection, doc } => {
-                    let id = doc
-                        .get("id")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .ok_or_else(|| anyhow::anyhow!("Missing id for update"))?;
-                    tx.add_update(&collection, &id, None, doc);
-                }
-                OperationRequest::Delete { collection, id } => {
-                    tx.add_delete(&collection, &id, None);
-                }
-            }
-        }
-        Ok(())
+#[command]
+pub async fn jsondb_delete_document(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+    collection: String,
+    id: String,
+) -> Result<bool, String> {
+    let manager = mgr(&storage, &space, &db)?;
+    manager
+        .delete_document(&collection, &id)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn jsondb_execute_query(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+    query: Query,
+) -> Result<QueryResponse, String> {
+    let manager = mgr(&storage, &space, &db)?;
+    let engine = QueryEngine::new(&manager);
+
+    let result = engine
+        .execute_query(query)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(QueryResponse {
+        documents: result.documents,
+        // CORRECTION : Cast u64 -> usize
+        total: result.total_count as usize,
     })
-    .map_err(|e| e.to_string())?;
+}
 
-    Ok(())
+#[command]
+pub async fn jsondb_execute_sql(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+    sql: String,
+) -> Result<QueryResponse, String> {
+    let manager = mgr(&storage, &space, &db)?;
+
+    let query = parse_sql(&sql).map_err(|e| format!("SQL Parse Error: {}", e))?;
+
+    let engine = QueryEngine::new(&manager);
+    let result = engine
+        .execute_query(query)
+        .await
+        .map_err(|e| format!("Execution Error: {}", e))?;
+
+    Ok(QueryResponse {
+        documents: result.documents,
+        // CORRECTION : Cast u64 -> usize
+        total: result.total_count as usize,
+    })
 }

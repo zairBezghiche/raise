@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# --- CHARGEMENT DU FICHIER .ENV (Si présent) ---
+if [ -f .env ]; then
+    # Exporte les variables du .env sans écraser celles déjà définies
+    export $(grep -v '^#' .env | xargs)
+    echo "🔧 Configuration chargée depuis .env"
+fi
+
 # ==============================================================================
 # 1. RÉSOLUTION ET CRÉATION DU DOSSIER DATASET
 # ==============================================================================
@@ -41,7 +48,7 @@ seed_file() {
 echo "🚀 Initialisation du contenu du Dataset..."
 
 # ==============================================================================
-# 3. DONNÉES
+# 3. DONNÉES DU SCÉNARIO "DRONE"
 # ==============================================================================
 
 # DATA

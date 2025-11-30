@@ -1,92 +1,88 @@
+// FICHIER : src-tauri/tests/json_db_suite/json_db_integration.rs
+
+use crate::common::{ensure_db_exists, get_dataset_file, init_test_env, TEST_DB, TEST_SPACE};
+use genaptitude::json_db::collections::manager::CollectionsManager;
+use genaptitude::json_db::storage::JsonDbConfig;
 use serde_json::Value;
 use std::fs;
 
-// 💡 Import de get_dataset_root et des constantes de test
-use crate::common::{ensure_db_exists, get_dataset_root, init_test_env, TEST_DB, TEST_SPACE};
-use genaptitude::json_db::collections::manager::CollectionsManager;
-use genaptitude::json_db::storage::JsonDbConfig;
-
-/// Charge l'article de base depuis le dataset externe via le helper commun
-fn load_base_article(_cfg: &JsonDbConfig) -> Value {
-    let root = get_dataset_root(); // Utilisation du helper partagé
-    let article_path = root.join("arcadia/v1/data/articles/article.json");
-
-    // eprintln!("📄 Chargement dataset : {}", article_path.display());
-
+fn load_base_article(cfg: &JsonDbConfig) -> Value {
+    let article_path = get_dataset_file(cfg, "arcadia/v1/data/articles/article.json");
     if !article_path.exists() {
-        panic!(
-            "❌ Dataset introuvable : {}\nVérifiez votre .env (PATH_GENAPTITUDE_DATASET).",
-            article_path.display()
-        );
+        panic!("❌ Dataset introuvable : {:?}", article_path);
     }
-
-    let raw = fs::read_to_string(&article_path)
-        .unwrap_or_else(|e| panic!("Impossible de lire le fichier : {e}"));
-
-    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("JSON invalide : {e}"))
+    let raw = fs::read_to_string(&article_path).unwrap();
+    serde_json::from_str(&raw).unwrap()
 }
 
 #[test]
 fn query_get_article_by_id() {
     let test_env = init_test_env();
-    let cfg = &test_env.cfg;
+    ensure_db_exists(&test_env.cfg, TEST_SPACE, TEST_DB);
 
-    // Initialisation physique
-    ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
-
-    // CORRECTION : On passe &test_env.storage au lieu de cfg
     let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
+    mgr.create_collection("articles", Some("articles/article.schema.json".to_string()))
+        .ok();
 
-    let mut doc = load_base_article(cfg);
-
-    if let Some(obj) = doc.as_object_mut() {
-        obj.remove("id");
+    let mut json_doc = load_base_article(&test_env.cfg);
+    // On ne touche pas à l'ID, on laisse le moteur le générer.
+    if let Some(obj) = json_doc.as_object_mut() {
         obj.insert(
             "handle".to_string(),
             Value::String("test-handle-get".to_string()),
         );
+        obj.insert(
+            "slug".to_string(),
+            Value::String("test-handle-get".to_string()),
+        );
+        obj.insert(
+            "displayName".to_string(),
+            Value::String("Test Handle Get".to_string()),
+        );
     }
 
+    // Insertion via schéma
     let stored = mgr
-        .insert_with_schema("articles/article.schema.json", doc)
+        .insert_with_schema("articles", json_doc)
         .expect("insert article failed");
 
     let id = stored
         .get("id")
         .and_then(|v| v.as_str())
-        .expect("id manquant");
+        .expect("ID manquant après insert");
 
-    let loaded = mgr.get("articles", id).expect("get failed");
+    let loaded_opt = mgr.get("articles", id).expect("get failed");
+    let loaded = loaded_opt.expect("Document non trouvé");
+
     assert_eq!(loaded.get("id").and_then(|v| v.as_str()), Some(id));
 }
 
 #[test]
 fn query_find_one_article_by_handle() {
     let test_env = init_test_env();
-    let cfg = &test_env.cfg;
-
-    ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
-
-    // CORRECTION : On passe &test_env.storage
+    ensure_db_exists(&test_env.cfg, TEST_SPACE, TEST_DB);
     let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
+    mgr.create_collection("articles", Some("articles/article.schema.json".to_string()))
+        .ok();
 
-    let base_doc = load_base_article(cfg);
+    let base_doc = load_base_article(&test_env.cfg);
     let target_handle = "handle-002";
     let mut target_id = String::new();
 
     for i in 1..=3 {
-        let mut doc = base_doc.clone();
+        let mut json_doc = base_doc.clone();
         let h = format!("handle-{:03}", i);
-
-        if let Some(obj) = doc.as_object_mut() {
-            obj.remove("id");
+        if let Some(obj) = json_doc.as_object_mut() {
             obj.insert("handle".to_string(), Value::String(h.clone()));
+            obj.insert("slug".to_string(), Value::String(h.clone()));
+            obj.insert(
+                "displayName".to_string(),
+                Value::String(format!("Display {}", h)),
+            );
         }
-
         let stored = mgr
-            .insert_with_schema("articles/article.schema.json", doc)
+            .insert_with_schema("articles", json_doc)
             .expect("insert");
-
         if h == target_handle {
             target_id = stored.get("id").unwrap().as_str().unwrap().to_string();
         }
@@ -104,30 +100,25 @@ fn query_find_one_article_by_handle() {
 #[test]
 fn query_find_many_with_sort_and_limit_simulated() {
     let test_env = init_test_env();
-    let cfg = &test_env.cfg;
-
-    ensure_db_exists(cfg, TEST_SPACE, TEST_DB);
-
-    // CORRECTION : On passe &test_env.storage
+    ensure_db_exists(&test_env.cfg, TEST_SPACE, TEST_DB);
     let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
+    mgr.create_collection("articles", Some("articles/article.schema.json".to_string()))
+        .ok();
 
-    let base_doc = load_base_article(cfg);
+    let base_doc = load_base_article(&test_env.cfg);
 
     for i in 1..=5 {
-        let mut doc = base_doc.clone();
-        if let Some(obj) = doc.as_object_mut() {
-            obj.remove("id");
-            obj.insert(
-                "handle".to_string(),
-                Value::String(format!("sort-{:03}", i)),
-            );
+        let mut json_doc = base_doc.clone();
+        if let Some(obj) = json_doc.as_object_mut() {
+            let h = format!("sort-{:03}", i);
+            obj.insert("handle".to_string(), Value::String(h.clone()));
+            obj.insert("slug".to_string(), Value::String(h.clone()));
         }
-        mgr.insert_with_schema("articles/article.schema.json", doc)
+        mgr.insert_with_schema("articles", json_doc)
             .expect("insert");
     }
 
     let mut all = mgr.list_all("articles").expect("list_all");
-
     all.sort_by(|a, b| {
         let ha = a.get("handle").and_then(|v| v.as_str()).unwrap_or("");
         let hb = b.get("handle").and_then(|v| v.as_str()).unwrap_or("");

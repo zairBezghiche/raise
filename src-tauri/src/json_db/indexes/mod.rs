@@ -13,9 +13,7 @@ pub mod manager;
 pub mod paths;
 pub mod text;
 
-// Re-export pour le manager
-pub use manager::create_collection_indexes;
-pub use manager::update_indexes;
+pub use manager::IndexManager;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

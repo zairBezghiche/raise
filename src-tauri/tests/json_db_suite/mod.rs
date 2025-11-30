@@ -4,5 +4,5 @@
 // "genaptitude" est le nom déclaré dans [package] name = "genaptitude" de Cargo.toml
 
 pub use genaptitude::json_db::test_utils::{
-    ensure_db_exists, get_dataset_root, init_test_env, TEST_DB, TEST_SPACE,
+    ensure_db_exists, get_dataset_file, init_test_env, TEST_DB, TEST_SPACE,
 };

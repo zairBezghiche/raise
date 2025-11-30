@@ -5,6 +5,7 @@ import { createQuery } from '@/services/json-db/query-service'
 import { Button } from '@/components/shared/Button'
 import { InputBar } from '@/components/ai-chat/InputBar'
 import type { OperationRequest } from '@/types/json-db.types'
+import { invoke } from '@tauri-apps/api/core';
 
 // Styles pour les badges d'opération
 const OP_STYLES = {
@@ -156,6 +157,36 @@ export function JsonDbTester() {
     addLog(`↩️ Rollback effectué`);
   }
 
+  const testLoad = async () => {
+    try {
+      addLog("⏳ Chargement du modèle complet en mémoire (Rust)...");
+      const start = performance.now();
+      
+      // Appel de la commande définie dans model_commands.rs
+      // Le type de retour est 'any' pour l'instant, mais correspond à ProjectModel
+      const model: any = await invoke('load_project_model', { 
+        space: 'un2', 
+        db: '_system' 
+      });
+      
+      const duration = (performance.now() - start).toFixed(2);
+      
+      // Extraction de quelques stats pour vérifier le contenu
+      const oaActors = model.oa?.actors?.length || 0;
+      const saFunctions = model.sa?.functions?.length || 0;
+      const paComponents = model.pa?.components?.length || 0;
+      
+      addLog(`✅ Modèle chargé en ${duration}ms !`);
+      addLog(`📊 Stats: ${oaActors} Acteurs OA / ${saFunctions} Fonctions SA / ${paComponents} Composants PA`);
+      
+      // Log complet dans la console développeur du navigateur (F12) pour inspection
+      console.log("📦 Modèle Complet :", model);
+
+    } catch (e: any) {
+      addLog(`❌ Erreur de chargement du modèle : ${e}`);
+      console.error(e);
+    }
+  }  
   // --- RENDERERS ---
 
   const renderDocItem = (item: any, showActions: boolean) => (
@@ -203,7 +234,45 @@ export function JsonDbTester() {
             <h3 style={{ color: '#fff', margin: 0 }}>⚛️ Moteur JSON-DB</h3>
             <div style={{fontSize: '0.8em', color: '#6b7280'}}>ACID Transactions & Search Engine</div>
         </div>
-        
+        <div style={{display: 'flex', gap: 8}}> {/* Ajout d'un gap pour espacer les groupes */}
+            
+            {/* NOUVEAU BOUTON DE TEST DE CHARGEMENT */}
+            <button 
+                onClick={testLoad}
+                style={{
+                    background: '#4f46e5', // Indigo
+                    color: '#fff',
+                    border: 'none', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.9em', fontWeight: 500,
+                    display: 'flex', alignItems: 'center', gap: 4
+                }}
+            >
+                📂 Charger Modèle
+            </button>
+
+            <div style={{display: 'flex', background: '#1f2937', padding: 4, borderRadius: 8}}>
+                <button 
+                    onClick={() => setActiveTab('write')}
+                    style={{
+                        background: activeTab === 'write' ? '#374151' : 'transparent',
+                        color: activeTab === 'write' ? '#fff' : '#9ca3af',
+                        border: 'none', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.9em', fontWeight: 500
+                    }}
+                >
+                    ✍️ Transactions
+                </button>
+                <button 
+                    onClick={() => setActiveTab('search')}
+                    style={{
+                        background: activeTab === 'search' ? '#374151' : 'transparent',
+                        color: activeTab === 'search' ? '#fff' : '#9ca3af',
+                        border: 'none', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: '0.9em', fontWeight: 500
+                    }}
+                >
+                    🔍 Recherche
+                </button>
+            </div>
+        </div>
+                
         <div style={{display: 'flex', background: '#1f2937', padding: 4, borderRadius: 8}}>
             <button 
                 onClick={() => setActiveTab('write')}

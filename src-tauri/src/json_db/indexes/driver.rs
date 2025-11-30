@@ -39,7 +39,6 @@ impl IndexMap for HashMap<String, Vec<String>> {
     fn from_records(records: Vec<IndexRecord>) -> Self {
         let mut map: HashMap<String, Vec<String>> = HashMap::new();
         for r in records {
-            // CORRECTION : On utilise directement la clé (String) sans conversion
             map.entry(r.key).or_default().push(r.document_id);
         }
         map
@@ -49,7 +48,6 @@ impl IndexMap for HashMap<String, Vec<String>> {
         let mut records = Vec::new();
         for (k, ids) in self {
             for id in ids {
-                // CORRECTION : On stocke directement la chaîne k (String)
                 records.push(IndexRecord {
                     key: k.clone(),
                     document_id: id.clone(),
@@ -82,7 +80,6 @@ impl IndexMap for BTreeMap<String, Vec<String>> {
     fn from_records(records: Vec<IndexRecord>) -> Self {
         let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for r in records {
-            // CORRECTION : Utilisation directe de la clé
             map.entry(r.key).or_default().push(r.document_id);
         }
         map
@@ -92,7 +89,6 @@ impl IndexMap for BTreeMap<String, Vec<String>> {
         let mut records = Vec::new();
         for (k, ids) in self {
             for id in ids {
-                // CORRECTION : Utilisation directe de la clé
                 records.push(IndexRecord {
                     key: k.clone(),
                     document_id: id.clone(),
@@ -113,9 +109,11 @@ pub fn load<T: IndexMap>(path: &Path) -> Result<T> {
 
     let content = fs::read(path).with_context(|| format!("Lecture index {}", path.display()))?;
 
-    // Désérialisation Bincode (Directe vers IndexRecord { key: String })
-    let records: Vec<IndexRecord> = bincode::deserialize(&content)
-        .with_context(|| format!("Désérialisation Bincode index {}", path.display()))?;
+    // CORRECTION BINCODE 2 : Utilisation de decode_from_slice avec configuration standard
+    let records: Vec<IndexRecord> =
+        bincode::serde::decode_from_slice(&content, bincode::config::standard())
+            .with_context(|| format!("Désérialisation Bincode index {}", path.display()))?
+            .0;
 
     Ok(T::from_records(records))
 }
@@ -123,7 +121,10 @@ pub fn load<T: IndexMap>(path: &Path) -> Result<T> {
 /// Sauvegarde un index sur le disque (Format Binaire Bincode)
 pub fn save<T: IndexMap>(path: &Path, index: &T) -> Result<()> {
     let records = index.to_records();
-    let encoded: Vec<u8> = bincode::serialize(&records)?;
+
+    // CORRECTION BINCODE 2 : Utilisation de encode_to_vec avec configuration standard
+    let encoded: Vec<u8> = bincode::serde::encode_to_vec(&records, bincode::config::standard())?;
+
     atomic_write_binary(path, &encoded)
 }
 
@@ -141,8 +142,6 @@ pub fn update<T: IndexMap>(
     // 1. Suppression de l'ancienne entrée
     if let Some(doc) = old_doc {
         if let Some(old_key) = doc.pointer(&def.field_path) {
-            // to_string() sur une Value donne sa représentation JSON (ex: "123" ou "\"abc\"")
-            // C'est parfait pour une clé d'index générique.
             index.remove_record(&old_key.to_string(), doc_id);
             changed = true;
         }

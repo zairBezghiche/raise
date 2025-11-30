@@ -89,9 +89,14 @@
     },
     "publishedAt": {
       "$ref": "../common/types/primitive-types.schema.json#/$defs/dateTime"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "published", "archived"],
+      "default": "draft"
     }
   },
-  "required": ["id", "handle", "displayName", "createdAt", "slug", "title"],
+  "required": ["$schema", "id", "createdAt", "updatedAt", "handle", "displayName", "slug", "title"],
   "examples": [
     {
       "id": "00000000-0000-0000-0000-000000000000",

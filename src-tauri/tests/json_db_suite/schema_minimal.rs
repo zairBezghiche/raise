@@ -1,33 +1,38 @@
-use crate::common::{init_test_env, TEST_DB, TEST_SPACE};
+// FICHIER : src-tauri/tests/json_db_suite/schema_minimal.rs
+
+use crate::common::{ensure_db_exists, init_test_env, TEST_DB, TEST_SPACE};
 use genaptitude::json_db::schema::{SchemaRegistry, SchemaValidator};
-use genaptitude::json_db::storage::file_storage;
+// use genaptitude::json_db::storage::file_storage; // Plus nécessaire
 use serde_json::json;
 
 #[test]
 fn schema_instantiate_validate_minimal() {
-    // 1) Initialisation de l'environnement (nettoyage auto via Drop)
     let test_env = init_test_env();
     let cfg = &test_env.cfg;
 
     let space = TEST_SPACE;
     let db = TEST_DB;
 
-    // 2) Création de la DB (idempotent, assure que le dossier existe pour le registre)
-    // Note: create_db est nécessaire car SchemaRegistry::from_db s'attend à ce que la structure physique existe
-    let _ = file_storage::create_db(cfg, space, db).expect("create_db failed");
+    // 1) S'assurer que la DB existe et contient les schémas
+    ensure_db_exists(cfg, space, db);
 
-    // 3) Registre strict DB + compilateur
-    // Le registre va charger les schémas présents dans la DB (qui ont été seedés par create_db si configuré,
-    // ou qui existent via le lien vers schemas_dev_root dans la config de test)
+    // 2) Charger le registre (depuis la DB peuplée)
     let reg = SchemaRegistry::from_db(cfg, space, db).expect("registry from DB");
 
     // URI du schéma à tester
     let root_uri = reg.uri("actors/actor.schema.json");
+
+    // Si le schéma n'est pas trouvé (mock failed), on skip ou on fail proprement
+    if reg.get_by_uri(&root_uri).is_none() {
+        // On peut tenter de créer un schéma à la volée pour que le test passe même en mode dégradé
+        // Mais ensure_db_exists devrait avoir fait le travail (copie ou mock)
+        panic!("Schéma introuvable dans le registre de test: {}", root_uri);
+    }
+
     let validator =
         SchemaValidator::compile_with_registry(&root_uri, &reg).expect("compile failed");
 
-    // 4) Document minimal volontairement SANS id/createdAt/updatedAt
-    // Ces champs sont marqués 'x_compute' dans le schéma et doivent être générés automatiquement.
+    // 3) Document minimal
     let mut doc = json!({
       "handle": "devops-engineer",
       "displayName": "Ingénieur DevOps",
@@ -37,24 +42,16 @@ fn schema_instantiate_validate_minimal() {
       "tags": ["core"]
     });
 
-    // 5) Déclenche les x_compute (uuid_v4, now_ts_ms, etc.) PUIS valide
+    // 4) Compute + Validate
     validator
         .compute_then_validate(&mut doc)
         .expect("compute + validate failed");
 
-    // 6) Vérifie que les champs calculés existent bien dans le document modifié
+    // 5) Vérifications
     assert!(
         doc.get("id").is_some() || doc.get("_id").is_some(),
-        "Un champ d'identifiant (id ou _id) doit avoir été calculé"
+        "id manquant"
     );
-    assert!(
-        doc.get("createdAt").is_some(),
-        "createdAt doit avoir été calculé"
-    );
-    assert!(
-        doc.get("updatedAt").is_some(),
-        "updatedAt doit avoir été calculé"
-    );
-
-    println!("✅ Document validé et complété : {}", doc);
+    assert!(doc.get("createdAt").is_some(), "createdAt manquant");
+    assert!(doc.get("updatedAt").is_some(), "updatedAt manquant");
 }

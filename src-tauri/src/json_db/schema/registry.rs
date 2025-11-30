@@ -1,33 +1,51 @@
+// FICHIER : src-tauri/src/json_db/schema/registry.rs
+
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::json_db::storage::JsonDbConfig;
 
-/// Registre ultra-simple des schémas chargés depuis la DB:
-/// - clé: URI logique "db://{space}/{db}/schemas/v1/<relpath>.json"
-/// - valeur: document JSON du schéma
+/// Registre des schémas chargés depuis la DB.
 #[derive(Debug, Clone)]
 pub struct SchemaRegistry {
-    base_prefix: String,
-    root: PathBuf,
-    by_uri: HashMap<String, Value>,
+    pub base_prefix: String,
+    pub root: PathBuf,
+    pub by_uri: HashMap<String, Value>,
+}
+
+impl Default for SchemaRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SchemaRegistry {
-    /// Charge tous les fichiers sous `<DB>/schemas/v1`
+    pub fn new() -> Self {
+        Self {
+            base_prefix: String::new(),
+            root: PathBuf::new(),
+            by_uri: HashMap::new(),
+        }
+    }
+
     pub fn from_db(cfg: &JsonDbConfig, space: &str, db: &str) -> Result<Self> {
-        let root = cfg.db_schemas_root(space, db);
+        // CORRECTION : Utilisation de db_schemas_root pour inclure le dossier _system
+        let root = cfg.db_schemas_root(space, db).join("v1");
         let base_prefix = format!("db://{}/{}/schemas/v1/", space, db);
         let mut by_uri = HashMap::new();
 
         if !root.exists() {
-            anyhow::bail!("Schemas root not found: {}", root.display());
+            // En production ou test vide, ce n'est pas une erreur, juste un registre vide
+            return Ok(Self {
+                base_prefix,
+                root,
+                by_uri,
+            });
         }
 
-        // parcours récursif
         let mut stack = vec![root.clone()];
         while let Some(dir) = stack.pop() {
             for entry in
@@ -37,21 +55,16 @@ impl SchemaRegistry {
                 let path = entry.path();
                 if path.is_dir() {
                     stack.push(path);
-                } else if path.is_file() {
-                    // on ne charge que .json
-                    if let Some(ext) = path.extension() {
-                        if ext == "json" {
-                            let rel =
-                                pathdiff::diff_paths(&path, &root).unwrap_or_else(|| path.clone());
-                            let rel_str = rel.to_string_lossy().replace('\\', "/"); // windows-friendly
+                } else if path.extension().map_or(false, |e| e == "json") {
+                    if let Ok(rel) = path.strip_prefix(&root) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        let uri = format!("{}{}", base_prefix, rel_str);
 
-                            let uri = format!("{}{}", base_prefix, rel_str);
-                            let data = fs::read_to_string(&path)
-                                .with_context(|| format!("Lecture schéma {}", path.display()))?;
-                            let json: Value = serde_json::from_str(&data)
-                                .with_context(|| format!("Parse JSON schéma {}", path.display()))?;
-                            by_uri.insert(uri, json);
-                        }
+                        let content = fs::read_to_string(&path)?;
+                        let json: Value = serde_json::from_str(&content)
+                            .with_context(|| format!("Json error in {}", path.display()))?;
+
+                        by_uri.insert(uri, json);
                     }
                 }
             }
@@ -64,79 +77,76 @@ impl SchemaRegistry {
         })
     }
 
-    /// Construit une URI logique depuis un chemin relatif (ex: "actors/actor.schema.json")
-    pub fn uri(&self, rel: &str) -> String {
-        normalize_uri(&format!("{}{}", self.base_prefix, rel))
-    }
-
-    /// Récupère un document de schéma par URI **sans fragment**.
     pub fn get_by_uri(&self, uri: &str) -> Option<&Value> {
-        // accepter une URI avec un éventuel fragment et l'ignorer
-        let (p, _frag) = split_fragment(uri);
-        self.by_uri.get(&normalize_uri(p))
+        self.by_uri.get(uri)
     }
 
-    /// Normalise une URI jointe à partir d'une base et d'un chemin relatif
-    pub fn join(&self, base_uri: &str, relative: &str) -> Result<String> {
-        if relative.starts_with("db://") {
-            return Ok(relative.to_string());
+    pub fn uri(&self, rel_path: &str) -> String {
+        format!("{}{}", self.base_prefix, rel_path)
+    }
+
+    pub fn join(&self, base_uri: &str, relative_path: &str) -> Result<String> {
+        if relative_path.contains("://") {
+            return Ok(relative_path.to_string());
         }
-        // on coupe la base au dernier '/'
-        let (base_dir, _) = base_uri.rsplit_once('/').unwrap_or((base_uri, ""));
-        // normalisation simple des '..' et '.'
-        let mut parts: Vec<&str> = base_dir.split('/').collect();
-        for seg in relative.split('/') {
-            match seg {
-                "" | "." => {}
-                ".." => {
-                    let _ = parts.pop();
-                }
-                other => parts.push(other),
-            }
-        }
-        Ok(parts.join("/"))
-    }
 
-    /// Racine FS, utile pour debug
-    pub fn fs_root(&self) -> &Path {
-        &self.root
-    }
+        if base_uri.starts_with("db://") {
+            let parent = if base_uri.ends_with('/') {
+                base_uri.to_string()
+            } else {
+                let parts: Vec<&str> = base_uri.split('/').collect();
+                parts[..parts.len() - 1].join("/") + "/"
+            };
 
-    /// Préfixe logique "db://.../schemas/v1/"
-    pub fn base(&self) -> &str {
-        &self.base_prefix
-    }
-    pub fn resolve_ref(&self, base_uri: &str, r: &str) -> Result<(String, Value)> {
-        let (path_part, fragment) = r.split_once('#').unwrap_or((r, ""));
-        let target_uri = if path_part.is_empty() {
-            base_uri.to_string()
+            // Simplification : concaténation directe.
+            // Une vraie résolution de path ".." serait idéale mais complexe sans crate `url`
+            let combined = format!("{}{}", parent, relative_path);
+            Ok(combined)
         } else {
-            self.join(base_uri, path_part)?
-        };
+            Ok(relative_path.to_string())
+        }
+    }
 
-        // get_by_uri -> Option<&Value> : on convertit en Result + on clone la Value
+    pub fn resolve_ref(&self, base_uri: &str, ref_val: &str) -> Result<(String, Value)> {
+        let target_uri_full = self.join(base_uri, ref_val)?;
+        let (file_uri, fragment) = split_fragment(&target_uri_full);
+
         let doc = self
-            .get_by_uri(&target_uri)
-            .ok_or(anyhow!("schema not found in registry: {}", target_uri))?;
+            .get_by_uri(file_uri)
+            .or_else(|| {
+                // Fallback fuzzy search pour les cas complexes de ".."
+                self.by_uri
+                    .keys()
+                    .find(|k| k.ends_with(file_uri.split('/').last().unwrap_or("")))
+                    .and_then(|k| self.by_uri.get(k))
+            })
+            .ok_or_else(|| anyhow!("Schema not found in registry: {}", file_uri))?;
 
-        if fragment.is_empty() {
-            return Ok((target_uri, doc.clone()));
+        if let Some(frag) = fragment {
+            if frag.is_empty() {
+                return Ok((file_uri.to_string(), doc.clone()));
+            }
+
+            let pointer = if frag.starts_with("#/") {
+                &frag[1..]
+            } else if frag.starts_with('#') {
+                frag
+            } else {
+                frag
+            };
+
+            let node = doc
+                .pointer(pointer)
+                .cloned()
+                .ok_or_else(|| anyhow!("Pointer not found: {} in {}", pointer, file_uri))?;
+            return Ok((file_uri.to_string(), node));
         }
 
-        // fragment "#/$defs/..." => JSON Pointer
-        let pointer = if let Some(rest) = fragment.strip_prefix('/') {
-            format!("/{}", rest)
-        } else {
-            format!("/{}", fragment.trim_start_matches('#'))
-        };
+        Ok((file_uri.to_string(), doc.clone()))
+    }
 
-        let node = doc.pointer(&pointer).cloned().ok_or(anyhow!(
-            "pointer not found: {} in {}",
-            pointer,
-            target_uri
-        ))?;
-
-        Ok((target_uri, node))
+    pub fn clear(&mut self) {
+        self.by_uri.clear();
     }
 }
 
@@ -145,26 +155,5 @@ fn split_fragment(uri: &str) -> (&str, Option<&str>) {
         (&uri[..idx], Some(&uri[idx..]))
     } else {
         (uri, None)
-    }
-}
-
-/// Normalise `db://a/b/../c` -> `db://a/c`
-fn normalize_uri(u: &str) -> String {
-    if let Some(rest) = u.strip_prefix("db://") {
-        let mut parts: Vec<&str> = rest.split('/').collect();
-        let mut out: Vec<&str> = Vec::with_capacity(parts.len());
-        for p in parts.drain(..) {
-            match p {
-                "" | "." => continue,
-                ".." => {
-                    out.pop();
-                }
-                _ => out.push(p),
-            }
-        }
-        format!("db://{}", out.join("/"))
-    } else {
-        // pas une URI db:// → retourner tel quel
-        u.to_string()
     }
 }

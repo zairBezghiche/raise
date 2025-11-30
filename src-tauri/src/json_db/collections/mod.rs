@@ -62,7 +62,10 @@ pub fn insert_with_schema(
     // 3) Collection cible
     let collection = collection_from_schema_rel(schema_rel);
     collection::create_collection_if_missing(cfg, space, db, &collection)?;
-    collection::persist_insert(cfg, space, db, &collection, &doc)?;
+
+    // CORRECTION : Utilisation de create_document avec extraction de l'ID
+    let id = doc.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    collection::create_document(cfg, space, db, &collection, id, &doc)?;
 
     Ok(doc)
 }
@@ -77,7 +80,10 @@ pub fn insert_raw(
     doc: &Value,
 ) -> Result<()> {
     collection::create_collection_if_missing(cfg, space, db, collection)?;
-    collection::persist_insert(cfg, space, db, collection, doc)
+
+    // CORRECTION : Utilisation de create_document avec extraction de l'ID
+    let id = doc.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    collection::create_document(cfg, space, db, collection, id, doc)
 }
 
 /// Update avec schéma : recompute + validate + persist (remplace le doc par id).
@@ -95,7 +101,14 @@ pub fn update_with_schema(
     validator.compute_then_validate(&mut doc)?;
 
     let collection = collection_from_schema_rel(schema_rel);
-    collection::persist_update(cfg, space, db, &collection, &doc)?;
+
+    // CORRECTION : Utilisation de update_document
+    let id = doc
+        .get("id")
+        .and_then(|v| v.as_str())
+        .expect("Document ID missing for update");
+    collection::update_document(cfg, space, db, &collection, id, &doc)?;
+
     Ok(doc)
 }
 
@@ -107,7 +120,12 @@ pub fn update_raw(
     collection: &str,
     doc: &Value,
 ) -> Result<()> {
-    collection::persist_update(cfg, space, db, collection, doc)
+    // CORRECTION : Utilisation de update_document
+    let id = doc
+        .get("id")
+        .and_then(|v| v.as_str())
+        .expect("Document ID missing for update");
+    collection::update_document(cfg, space, db, collection, id, doc)
 }
 
 /// Récupère un document par id.
