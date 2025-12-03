@@ -1,75 +1,136 @@
-use crate::json_db::collections::manager::CollectionsManager;
-use crate::json_db::storage::StorageEngine;
-use crate::model_engine::model::*;
-use anyhow::Result;
-use serde::de::DeserializeOwned;
+// FICHIER : src-tauri/src/model_engine/loader.rs
 
-pub struct ProjectLoader<'a> {
+use crate::json_db::collections::manager::CollectionsManager;
+use crate::json_db::jsonld::vocabulary::{arcadia_types, namespaces};
+use crate::json_db::jsonld::JsonLdProcessor;
+use crate::json_db::storage::StorageEngine;
+use anyhow::Result;
+use serde_json::Value;
+use std::collections::HashMap;
+use tauri::State;
+
+use super::types::{ArcadiaElement, ProjectModel};
+
+pub struct ModelLoader<'a> {
     manager: CollectionsManager<'a>,
+    processor: JsonLdProcessor,
 }
 
-impl<'a> ProjectLoader<'a> {
-    pub fn new(storage: &'a StorageEngine, space: &str, db: &str) -> Self {
+impl<'a> ModelLoader<'a> {
+    /// Constructeur principal utilisé par les commandes Tauri
+    pub fn new(storage: &'a State<'_, StorageEngine>, space: &str, db: &str) -> Self {
+        Self::from_engine(storage.inner(), space, db)
+    }
+
+    /// Constructeur découplé (utilisable pour les tests d'intégration sans contexte Tauri)
+    pub fn from_engine(storage: &'a StorageEngine, space: &str, db: &str) -> Self {
         Self {
             manager: CollectionsManager::new(storage, space, db),
+            processor: JsonLdProcessor::new(),
         }
     }
 
-    /// Charge tout le projet en mémoire
-    pub fn load_full_project(&self) -> Result<ProjectModel> {
+    /// Charge l'intégralité du modèle en mémoire en scannant toutes les collections
+    /// CORRECTION : Retrait de 'async' car les opérations sous-jacentes (std::fs) sont synchrones/bloquantes
+    pub fn load_full_model(&self) -> Result<ProjectModel> {
         let mut model = ProjectModel::default();
 
-        // 🟢 OA
-        model.oa.actors = self.load_collection("operational-actors")?;
-        model.oa.activities = self.load_collection("operational-activities")?;
-        model.oa.capabilities = self.load_collection("operational-capabilities")?;
-        model.oa.entities = self.load_collection("operational-entities")?;
-        // model.oa.exchanges = self.load_collection("operational-exchanges")?;
+        // On parcourt toutes les collections de la DB
+        let collections = self.manager.list_collections()?;
 
-        // 🟡 SA
-        model.sa.components = self.load_collection("system-components")?;
-        model.sa.actors = self.load_collection("system-actors")?;
-        model.sa.functions = self.load_collection("system-functions")?;
-        model.sa.capabilities = self.load_collection("system-capabilities")?;
-        // model.sa.exchanges = self.load_collection("functional-exchanges-sa")?;
+        for col_name in collections {
+            // On ignore les collections systèmes ou de métadonnées pures
+            if col_name.starts_with('_') {
+                continue;
+            }
 
-        // 🔵 LA
-        model.la.components = self.load_collection("logical-components")?;
-        model.la.functions = self.load_collection("logical-functions")?;
-        // ... suite LA ...
+            let docs = self.manager.list_all(&col_name)?;
 
-        // 🔴 PA
-        model.pa.components = self.load_collection("physical-components")?;
-        // ... suite PA ...
-
-        // 🟣 EPBS
-        model.epbs.configuration_items = self.load_collection("configuration-items")?;
-
-        // Méta
-        model.meta.loaded_at = chrono::Utc::now().to_rfc3339();
-        model.meta.element_count =
-            model.oa.actors.len() + model.sa.functions.len() + model.pa.components.len(); // etc...
+            for doc in docs {
+                // Analyse Sémantique via JSON-LD
+                // On utilise l'expansion pour garantir que le type est bien reconnu
+                if let Ok(element) = self.process_document_semantically(doc) {
+                    self.dispatch_element(&mut model, element);
+                }
+            }
+        }
 
         Ok(model)
     }
 
-    /// Helper générique : Charge une collection et la convertit en Vec<T>
-    fn load_collection<T: DeserializeOwned>(&self, collection_name: &str) -> Result<Vec<T>> {
-        let docs = self.manager.list_all(collection_name).unwrap_or_default();
-        let mut items = Vec::new();
+    /// Transforme un document JSON brut en Élément Arcadia typé sémantiquement
+    fn process_document_semantically(&self, doc: Value) -> Result<ArcadiaElement> {
+        // 1. Expansion pour normaliser les types (ex: "oa:Actor" -> "https://.../oa#OperationalActor")
+        let expanded = self.processor.expand(&doc);
 
-        for doc in docs {
-            // On utilise serde_json pour transformer la Value générique en Struct typée T
-            // Si le schéma JSON est respecté, ça passe. Sinon, on log l'erreur mais on continue.
-            match serde_json::from_value::<T>(doc.clone()) {
-                Ok(item) => items.push(item),
-                Err(e) => {
-                    // Ici on pourrait logger : "Failed to parse document in {collection_name}: {e}"
-                    // Pour l'instant on ignore silencieusement les documents malformés
-                    eprintln!("⚠️ Erreur mapping Rust pour {collection_name}: {e}");
-                }
+        // 2. Récupération de l'ID et du Type canonique (URI complète)
+        let id = self
+            .processor
+            .get_id(&expanded)
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let type_uri = self.processor.get_type(&expanded).unwrap_or_default();
+
+        // 3. Extraction des propriétés
+        let compacted = self.processor.compact(&doc);
+
+        // Récupération du nom (supporte "name", "oa:name", ou "skos:prefLabel")
+        let name = compacted
+            .get("name")
+            .or_else(|| compacted.get("http://www.w3.org/2004/02/skos/core#prefLabel"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Sans nom")
+            .to_string();
+
+        let obj = compacted
+            .as_object()
+            .ok_or(anyhow::anyhow!("Not an object"))?;
+
+        let mut properties = HashMap::new();
+        for (k, v) in obj {
+            // On exclut les mots-clés JSON-LD
+            if !k.starts_with('@') {
+                properties.insert(k.clone(), v.clone());
             }
         }
-        Ok(items)
+
+        Ok(ArcadiaElement {
+            id,
+            name,
+            kind: type_uri,
+            properties,
+        })
+    }
+
+    /// Range l'élément dans la bonne couche du modèle selon son Type URI exact
+    fn dispatch_element(&self, model: &mut ProjectModel, el: ArcadiaElement) {
+        // --- OA ---
+        if el.kind == arcadia_types::uri(namespaces::OA, arcadia_types::OA_ACTOR) {
+            model.oa.actors.push(el);
+        } else if el.kind == arcadia_types::uri(namespaces::OA, arcadia_types::OA_ACTIVITY) {
+            model.oa.activities.push(el);
+        } else if el.kind == arcadia_types::uri(namespaces::OA, arcadia_types::OA_CAPABILITY) {
+            model.oa.capabilities.push(el);
+        }
+        // --- SA ---
+        else if el.kind == arcadia_types::uri(namespaces::SA, arcadia_types::SA_FUNCTION) {
+            model.sa.functions.push(el);
+        } else if el.kind == arcadia_types::uri(namespaces::SA, arcadia_types::SA_ACTOR) {
+            model.sa.actors.push(el);
+        } else if el.kind == arcadia_types::uri(namespaces::SA, arcadia_types::SA_COMPONENT) {
+            model.sa.components.push(el);
+        }
+        // --- LA ---
+        else if el.kind == arcadia_types::uri(namespaces::LA, arcadia_types::LA_COMPONENT) {
+            model.la.components.push(el);
+        }
+        // --- PA ---
+        else if el.kind == arcadia_types::uri(namespaces::PA, arcadia_types::PA_COMPONENT) {
+            model.pa.components.push(el);
+        }
+        // Fallback pour compatibilité ascendante
+        else if el.kind.ends_with("Actor") {
+            model.oa.actors.push(el);
+        }
     }
 }

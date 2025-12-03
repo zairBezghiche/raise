@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import { collectionService } from '@/services/json-db/collection-service'
 import { createQuery } from '@/services/json-db/query-service'
 import { createTransaction, TransactionService } from '@/services/json-db/transaction-service'
+import { modelService } from '@/services/model-service'
+import { useModelStore } from '@/store/model-store'
 import { Button } from '@/components/shared/Button'
 import { InputBar } from '@/components/ai-chat/InputBar'
 import type { OperationRequest } from '@/types/json-db.types'
-import { invoke } from '@tauri-apps/api/core';
 
 // Styles pour l'affichage
 const OP_STYLES: Record<string, { color: string, label: string }> = {
@@ -27,6 +28,9 @@ export function JsonDbTester() {
   const [pendingOps, setPendingOps] = useState<OperationRequest[]>([])
   const txRef = useRef<TransactionService>(createTransaction())
 
+  // Connexion au store global pour mettre à jour le modèle une fois chargé
+  const setProject = useModelStore(s => s.setProject);
+
   const addLog = (msg: string) => setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev])
 
   useEffect(() => { initCollection(); }, []);
@@ -39,11 +43,16 @@ export function JsonDbTester() {
       addLog(`⚠️ Erreur init: ${e}`);
     }
   }
-
   const refreshItems = async () => {
     try {
       const docs = await collectionService.listAll(COLLECTION_NAME);
-      setItems(docs.reverse());
+      // CORRECTION : Vérification que docs est bien un tableau
+      if (Array.isArray(docs)) {
+          setItems(docs.reverse());
+      } else {
+          addLog(`⚠️ Format inattendu reçu: ${JSON.stringify(docs)}`);
+          setItems([]);
+      }
     } catch (e: any) {
       addLog(`⚠️ Erreur lecture: ${e}`);
     }
@@ -112,13 +121,22 @@ export function JsonDbTester() {
     }
   }
 
+  // Nouvelle version utilisant le ModelService
   const testLoad = async () => {
     try {
-      addLog("⏳ Chargement...");
-      const start = performance.now();
-      const model: any = await invoke('load_project_model', { space: 'un2', db: '_system' });
-      const duration = (performance.now() - start).toFixed(2);
-      addLog(`✅ Modèle chargé (${duration}ms). ${model.oa?.actors?.length || 0} acteurs.`);
+      addLog("⏳ Chargement du modèle complet (Rust Thread)...");
+      
+      // Appel du nouveau service
+      const model = await modelService.loadProjectModel('un2', '_system');
+      
+      // Mise à jour du store global
+      setProject(model);
+      
+      addLog(`✅ Modèle chargé !`);
+      addLog(`   - OA Actors: ${model.oa.actors.length}`);
+      addLog(`   - SA Functions: ${model.sa.functions.length}`);
+      addLog(`   - Total Elements: ${model.meta.elementCount}`);
+      
     } catch (e: any) {
       addLog(`❌ Erreur chargement: ${e}`);
     }

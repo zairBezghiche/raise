@@ -2,7 +2,7 @@
 
 Le **Model Engine** est la couche d'abstraction qui transforme les données brutes stockées dans la base de données (`json_db`) en structures Rust fortement typées et interconnectées.
 
-Il agit comme un **ORM (Object-Relational Mapping)** spécialisé pour la méthode **Arcadia** et l'architecture **GenAptitude**.
+Il agit comme un **ORM (Object-Relational Mapping)** spécialisé pour la méthode **Arcadia** et l'architecture **GenAptitude**, en s'appuyant sur une résolution sémantique stricte (JSON-LD).
 
 ---
 
@@ -12,8 +12,8 @@ Le flux de données suit ce chemin :
 
 ```mermaid
 graph LR
-    Disk[(Disque JSON)] -->|json_db| Loader(ProjectLoader)
-    Loader -->|Désérialisation| Structs(Structures Rust)
+    Disk[(Disque JSON)] -->|json_db| Loader(ModelLoader)
+    Loader -->|Désérialisation & Sémantique| Structs(Structures Rust)
     Structs -->|Aggregation| Model(ProjectModel)
     Model -->|Analyse/IA| App(Application / IA)
 ```
@@ -22,32 +22,38 @@ graph LR
 
 ## 📦 Rôles des Modules
 
-| Module      | Description                                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------------------------------- |
-| `model.rs`  | Définit la structure racine `ProjectModel` qui contient toutes les couches (OA, SA, LA, PA, EPBS) en mémoire.  |
-| `loader.rs` | Contient la logique d'extraction (`ProjectLoader`). Il scanne les collections, valide et instancie les objets. |
-| `common.rs` | Types primitifs partagés : `Uuid`, `I18nString` (multilingue), `BaseEntity` (ID, dates).                       |
-| `arcadia/`  | Implémentation des concepts métier Arcadia (Acteurs, Fonctions, Composants) via des macros.                    |
+| Module      | Description                                                                                                                                                           |
+| :---------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.rs`  | (Anciennement `model.rs`) Définit la structure racine `ProjectModel` qui contient toutes les couches (OA, SA, LA, PA, EPBS) en mémoire.                               |
+| `loader.rs` | Contient la logique d'extraction (`ModelLoader`). Il scanne les collections, effectue l'expansion JSON-LD, valide et instancie les objets selon leur type sémantique. |
+| `common.rs` | Types primitifs partagés : `Uuid`, `I18nString` (multilingue), `BaseEntity` (ID, dates).                                                                              |
+| `arcadia/`  | Implémentation des concepts métier Arcadia (Acteurs, Fonctions, Composants) via des macros.                                                                           |
 
 ---
 
 ## 🧠 Le Modèle en Mémoire (`ProjectModel`)
 
-L'objet `ProjectModel` est le **jumeau numérique** du projet stocké sur le disque.  
-Il est organisé par couches d'ingénierie :
+L'objet `ProjectModel` est le **jumeau numérique** du projet stocké sur le disque.
+Il est organisé par couches d'ingénierie et défini dans `src/model_engine/types.rs` :
 
 ```rust
 pub struct ProjectModel {
-    pub oa: OperationalAnalysisLayer,   // Besoins & Métier
-    pub sa: SystemAnalysisLayer,        // Ce que fait le système
-    pub la: LogicalArchitectureLayer,   // Comment (Logique)
-    pub pa: PhysicalArchitectureLayer,  // Comment (Physique/Logiciel)
-    pub epbs: EPBSLayer,                // Configuration Produits
-    pub meta: ProjectMeta,              // Métadonnées globales
+    #[serde(default)]
+    pub oa: OperationalAnalysis,   // Besoins & Métier
+    #[serde(default)]
+    pub sa: SystemAnalysis,        // Ce que fait le système
+    #[serde(default)]
+    pub la: LogicalArchitecture,   // Comment (Logique)
+    #[serde(default)]
+    pub pa: PhysicalArchitecture,  // Comment (Physique/Logiciel)
+    #[serde(default)]
+    pub epbs: EPBS,                // Configuration Produits
+    #[serde(default)]
+    pub meta: ProjectMeta,         // Métadonnées globales
 }
 ```
 
-Chaque couche encapsule ses propres entités (acteurs, fonctions, composants, échanges, exigences, etc.) dans une vue cohérente et fortement typée.
+Chaque couche encapsule ses propres entités (acteurs, fonctions, composants, échanges, etc.) dans des vecteurs typés (`Vec<ArcadiaElement>`).
 
 ---
 
@@ -59,23 +65,9 @@ Pour éviter la répétition de code (boilerplate) et garantir la conformité av
 
 Définie dans `arcadia/metamodel.rs`, elle injecte automatiquement :
 
-- **Héritage technique (`BaseEntity`)**
-
-  - `id`
-  - `$schema`
-  - `createdAt`
-  - `updatedAt`
-
-- **Héritage métier (`ArcadiaProperties`)**
-
-  - `name`
-  - `description`
-  - `xmi_id`
-  - `tags`
-  - `propertyValues` (PVMT)
-
-- **Champs spécifiques**
-  - Ceux définis explicitement pour l'élément Arcadia (ex. nature, allocations, relations, etc.).
+- **Héritage technique (`BaseEntity`)** : `id`, `$schema`, `createdAt`, `updatedAt`.
+- **Héritage métier (`ArcadiaProperties`)** : `name`, `description`, `xmi_id`, `tags`, `propertyValues` (PVMT).
+- **Champs spécifiques** : Ceux définis explicitement pour l'élément Arcadia (ex. nature, allocations, relations, etc.).
 
 ### Exemple d’implémentation (Physical Component)
 
@@ -97,27 +89,28 @@ Cette macro génère une `struct PhysicalComponent` complète, prête à être s
 
 ## 📥 Le Chargeur (`loader.rs`)
 
-Le `ProjectLoader` est responsable de l'**hydratation** du modèle en mémoire à partir de la `json_db`.
+Le `ModelLoader` est responsable de l'**hydratation** du modèle en mémoire à partir de la `json_db`. Il utilise une approche sémantique robuste basée sur le vocabulaire centralisé (`vocabulary.rs`).
 
 ### Responsabilités
 
-- Se connecter au **StorageEngine** sous-jacent.
-- Itérer sur les collections connues  
-  (ex. `system-functions`, `physical-components`, `operational-actors`, etc.).
-- Convertir chaque document JSON en struct Rust fortement typée.
-- Gérer silencieusement les erreurs de mapping (logs en **warning**) pour éviter de crasher si un fichier est corrompu ou incomplet.
+1.  **Connexion** : Se connecter au `StorageEngine` (via `CollectionsManager`).
+2.  **Expansion JSON-LD** : Utiliser le `JsonLdProcessor` pour résoudre les types (ex: `"oa:Actor"` devient `"https://genaptitude.io/ontology/arcadia/oa#OperationalActor"`).
+3.  **Dispatch** : Trier les éléments dans les bonnes couches (`OA`, `SA`, `LA`...) en se basant sur leur URI de type canonique, et non sur des noms de fichiers ou de collections arbitraires.
 
 ### Utilisation
 
-```rust
-// 1. Initialiser le loader avec le moteur de stockage
-let loader = ProjectLoader::new(&storage_engine, "space_id", "db_id");
+Le chargement est une opération lourde (I/O + CPU) qui doit être exécutée dans un thread dédié (`spawn_blocking`).
 
-// 2. Charger tout le projet
-let model = loader.load_full_project()?;
+```rust
+// 1. Initialiser le loader (depuis une commande Tauri)
+// Utilise StorageEngine cloné pour être thread-safe et indépendant de l'état Tauri
+let loader = ModelLoader::from_engine(&storage_engine, "space_id", "db_id");
+
+// 2. Charger tout le projet (Synchrone, bloquant)
+let model = loader.load_full_model()?;
 
 // 3. Accéder aux données typées
-println!("Nombre d'acteurs : {}", model.oa.actors.len());
+println!("Nombre d'acteurs OA : {}", model.oa.actors.len());
 ```
 
 ---
@@ -128,14 +121,8 @@ println!("Nombre d'acteurs : {}", model.oa.actors.len());
 
 `I18nString` gère le **multilinguisme nativement** :
 
-- Peut être une simple `String` :
-  ```json
-  "Bonjour"
-  ```
-- Peut être une map clé/valeur :
-  ```json
-  { "fr": "Bonjour", "en": "Hello" }
-  ```
+- Peut être une simple `String` : `"Bonjour"`
+- Peut être une map clé/valeur : `{ "fr": "Bonjour", "en": "Hello" }`
 
 Cela permet de stocker les noms, descriptions et labels dans plusieurs langues sans complexifier le modèle métier.
 
@@ -150,18 +137,9 @@ Cela permet de stocker les noms, descriptions et labels dans plusieurs langues s
 
 ## ⚠️ Points d’Attention
 
-- **Conflits de noms**  
-  Certains concepts existent dans plusieurs couches (ex. `FunctionalExchange`).  
-  Dans `model.rs`, nous utilisons des alias (`SaFunctionalExchange`, `LaFunctionalExchange`, etc.) pour les distinguer clairement.
-
-- **Performance**  
-  Le chargement est :
-
-  - **I/O bound** : lecture de nombreux fichiers JSON sur disque.
-  - **CPU bound** : désérialisation JSON → structures Rust.
-
-  Il doit donc **toujours** être exécuté dans un thread dédié (via `spawn_blocking`) pour ne pas figer l’interface **Tauri** et préserver la réactivité de l’UI.
+- **Adhésion Sémantique** : Le moteur ne se base plus sur des chaînes magiques. Il utilise les constantes définies dans `src/json_db/jsonld/vocabulary.rs`. Si un type JSON-LD est inconnu, l'élément ne sera pas correctement classé dans le modèle en mémoire.
+- **Performance & Threading** : Le chargement (`load_full_model`) est synchrone pour simplifier la logique interne (parcours récursif, I/O fichier standard). Il doit impérativement être encapsulé dans `tauri::async_runtime::spawn_blocking` lorsqu'il est appelé depuis une commande asynchrone pour ne pas bloquer la boucle d'événements principale.
 
 ---
 
-Ce **Model Engine** fournit ainsi une base unique, cohérente et typée pour toutes les fonctionnalités d’analyse, de génération de code et d’IA de GenAptitude.
+Ce **Model Engine** fournit ainsi une base unique, cohérente et sémantiquement rigoureuse pour toutes les fonctionnalités d’analyse, de génération de code et d’IA de GenAptitude.

@@ -1,13 +1,13 @@
 # GenAptitude — Technical Architecture
 
-**Version :** 1.0 · **Date :** 2025-11-08 · **Auteur :** GenAptitude  
+**Version :** 1.1 · **Date :** 2025-11-29 · **Auteur :** GenAptitude  
 **Slogan :** _From Business Needs to Running Code_
 
 > Architecture technique détaillée pour le MVP **workstation-first** : Rust/Tauri/WASM (UI IA-Native), RAG (Qdrant + LeanStore), **LLM local** (llama.cpp GGUF), **MBAIE** (neuro-symbolique), traçabilité (Hyperledger Fabric), observabilité (Prometheus/Loki/OpenTelemetry). Distinction **Software / System / Hardware**.
 
 ---
 
-## 1. Objectifs techniques
+## 1\. Objectifs techniques
 
 - **Souveraineté & confidentialité** : exécution locale, données en clair uniquement si nécessaire, chemins OS “app data”.
 - **Frugalité** : _retrieval-first_, quantification 4–8 bits, CPU-first avec option GPU.
@@ -17,27 +17,32 @@
 
 ---
 
-## 2. Vue d’ensemble (composants)
+## 2\. Vue d’ensemble (composants)
 
 ```mermaid
 graph TD
   subgraph Desktop[Workstation (Tauri app)]
     UI[Vite/React (TS)] -->|invoke| Tauri[Tauri v2 (Rust)]
-    Tauri --> Orchestrator[Agent Orchestrator (Rust)]
+    Tauri --> Commands[IPC Commands]
+    Commands --> ModelEngine[Model Engine (Loader/Semantic)]
+    Commands --> Orchestrator[Agent Orchestrator (AI)]
+
+    ModelEngine --> Storage[StorageEngine (JSON-DB + Cache)]
     Orchestrator --> WASM[WASM Sandbox (WASI)]
     Orchestrator --> RAG[(Qdrant + LeanStore)]
     Orchestrator --> Rules[Règles: Drools/OpenFisca Adapters]
-    Orchestrator --> Ledger[(Hyperledger Fabric Client)]
-    Orchestrator --> Obs[(OTel Exporter)]
+
+    Commands --> Ledger[(Hyperledger Fabric Client)]
+    Tauri --> Obs[(OTel Exporter)]
   end
   RAG -. embeddings .- LLM[(llama.cpp Runtime)]
 ```
 
-**Flux** : UI (intentions) → Orchestrator → RAG + LLM → Validation **règles** → HITL (si besoin) → **Evidence** → Publication.
+**Flux** : UI (intentions) → Orchestrator → RAG + LLM → Validation **règles** → HITL (si besoin) → **Model Engine** (Persistence) → **Evidence** → Publication.
 
 ---
 
-## 3. Pile technologique
+## 3\. Pile technologique
 
 ### 3.1 Software
 
@@ -66,63 +71,62 @@ graph TD
 
 ---
 
-## 4. Modules & Interfaces
+## 4\. Modules & Interfaces
 
 ### 4.1 UI (src/)
 
 - **Entrée** : `src/index.html`, `main.tsx`, `App.tsx`; pages statiques sous `src/pages/…`.
-- **Services** : `src/services/json-db/*` (ex. `SchemaService`).
+- **Services** : `src/services/json-db/*`, `src/services/model-service.ts`.
 - **Exemple lien statique** : `/pages/dark-mode-demo.html`.
 
-### 4.2 Tauri Commands (src-tauri/src/main.rs)
+### 4.2 Tauri Commands (src-tauri/src/commands/\*)
 
-```rust
-#[command] fn register_schema(app: AppHandle, schema_id: String, schema_json: String) -> Result<(), String>;
-#[command] fn get_schema(app: AppHandle, schema_id: String) -> Result<String, String>;
-```
+L'API IPC est structurée par domaines :
 
-- Persistance sous `{app_data_dir}/schemas/{schema_id}.json`.
-- Ajouter ensuite : `run_plan`, `get_evidence`, `rag_search`, `validate_rules`.
+- **JSON-DB** (`jsondb_*`) : CRUD bas niveau, gestion des collections.
+- **Model Engine** (`load_project_model`) : Chargement sémantique et typé du projet entier.
+- **Blockchain** (`fabric_*`, `vpn_*`) : Interaction avec le ledger et le réseau mesh.
 
-### 4.3 WASM Sandbox
+### 4.3 Model Engine (src-tauri/src/model_engine/)
+
+Le cœur de la logique MBSE :
+
+- **ModelLoader** : Charge les données JSON brutes, applique l'expansion JSON-LD, et instancie les structures Rust (`ProjectModel`).
+- **Arcadia Element** : Macro Rust (`arcadia_element!`) pour définir des types fortement typés (OA, SA, LA, PA).
+- **Threading** : Les opérations lourdes (I/O, parsing) sont déléguées à des threads dédiés via `spawn_blocking`.
+
+### 4.4 WASM Sandbox
 
 - **Cibles** : `wasm32-wasip1` (sandbox règles/outils), `wasm32-unknown-unknown` (pur compute).
 - **Contrats** (ex.) :
+  ```rust
+  #[no_mangle]
+  pub extern "C" fn ga_run(ptr: *const u8, len: usize) -> i32 { /* ... */ }
+  ```
 
-```rust
-// export "ga_run" (WASI)
-#[no_mangle]
-pub extern "C" fn ga_run(ptr: *const u8, len: usize) -> i32 { /* ... */ }
-```
-
-### 4.4 RAG Adapter
+### 4.5 RAG Adapter & Rules
 
 - **Embeddings** : locaux (all-MiniLM / E5-small) → ajustable.
-- **Index** : Qdrant (HNSW) ; métadonnées normalisées (_doc_id, chunk_id, source_uri, hash, tags_).
-- **API** : `search(query, k, filters) -> { passages, citations }`.
-
-### 4.5 Rules Adapter
-
-- **Drools** : règles `.drl` versionnées ; appel via service (HTTP/gRPC) ou exécution locale si embarquée.
-- **OpenFisca** : API calcul (paramètres → résultats + trace).
-- **Contrat** : `validate(draft, context) -> { verdict, deltas, rules_fired[] }`.
+- **Index** : Qdrant (HNSW).
+- **Rules** : Validation via Drools/OpenFisca. Contrat : `validate(draft, context) -> { verdict }`.
 
 ### 4.6 Evidence / Ledger
 
-- **Hash** : SHA-256 de l’artefact + métadonnées (source set, horodatage, version).
-- **Fabric** : `submitEvidence(hash, meta)` ; lecture `getEvidence(id)`.
+- **Hash** : SHA-256 de l’artefact + métadonnées.
+- **Fabric** : Client gRPC pour ancrage immuable.
 
 ---
 
-## 5. Données & Config
+## 5\. Données & Config
 
 ### 5.1 Répertoires
 
 ```
-{app_data_dir}/schemas/        # schémas métiers (JSON/JSON-LD)
-{app_data_dir}/evidence/       # journaux, preuves, artefacts signés
-{app_log_dir}/                 # logs OTel (si file-based)
-public/wasm/ga_wasm.wasm       # artefacts servis tels quels
+{app_data_dir}/genaptitude_db/  # Racine du stockage JSON-DB
+  ├── <space>/<db>/
+      ├── collections/           # Données métier
+      ├── schemas/v1/            # Schémas JSON (Registry)
+      └── _wal.jsonl             # Journal des transactions
 ```
 
 ### 5.2 Nommage & version
@@ -142,7 +146,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
 ---
 
-## 6. Sécurité
+## 6\. Sécurité
 
 - **ZTA local** : surface restreinte, appels sortants contrôlés.
 - **CSP** : pas d’évaluations dynamiques, _allowlist_ stricte Tauri.
@@ -152,7 +156,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
 ---
 
-## 7. Observabilité
+## 7\. Observabilité
 
 - **OTel** : traces (invokes, RAG, rules), métriques (latence p95, RAM, E2E), logs structurés (JSON).
 - **Exports** : OTLP → Prometheus/Loki.
@@ -160,7 +164,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
 ---
 
-## 8. CI/CD (GitLab)
+## 8\. CI/CD (GitLab)
 
 - **Stages** : `lint → build (web, wasm) → test (wasm) → bundle (tauri)`
 - **Images** :
@@ -173,7 +177,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
 ---
 
-## 9. Build & Run (local)
+## 9\. Build & Run (local)
 
 ```bash
 # Front
@@ -192,24 +196,24 @@ cargo build --manifest-path src-wasm/Cargo.toml --target wasm32-wasip1 --release
 
 ---
 
-## 10. Qualité & Tests
+## 10\. Qualité & Tests
 
 - **Rust** : `cargo fmt`, `cargo clippy -D warnings`, `cargo test`.
 - **TS** : `tsc --noEmit`, (option) `vitest` pour unités UI/services.
-- **Règles** : tests Given/When/Then + _golden files_.
+- **Intégration** : Suite de tests `json_db` complète (cycle de vie, transactions, requêtes).
 - **Non-régression** : snapshots d’artefacts + hash.
 
 ---
 
-## 11. Roadmap technique
+## 11\. Roadmap technique
 
-- **v1.1** : Agent planner configurable, règles “live reload” via WASI.
-- **v1.2** : Fine-tuning LoRA/QLoRA sur suites model-based.
-- **v1.3** : Packaging Windows/macOS, signatures code, auto-update (diffs).
+- **v1.2** : Agent planner configurable, règles “live reload” via WASI.
+- **v1.3** : Fine-tuning LoRA/QLoRA sur suites model-based.
+- **v1.4** : Packaging Windows/macOS, signatures code, auto-update (diffs).
 
 ---
 
-## 12. Annexes
+## 12\. Annexes
 
 ### 12.1 Ports (par défaut)
 

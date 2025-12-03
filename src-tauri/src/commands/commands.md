@@ -24,12 +24,16 @@ Le module **`commands`** de GenAptitude expose l'API backend Rust au frontend Ty
 - ✅ Listing de collections et documents
 - ✅ Queries complexes avec filtres, tri et pagination (Async)
 
+**Commandes Model Engine** (1) :
+
+- ✅ Chargement complet et sémantique du projet (`load_project_model`)
+- ⚙️ (Futur) Transformations et validations
+
 **Commandes Futures** (placeholders) :
 
 - ⚙️ AI Commands : Interaction avec agents LLM
 - ⚙️ Code Commands : Génération et analyse de code
 - ⚙️ File Commands : Gestion de fichiers système
-- ⚙️ Model Commands : Manipulation de modèles MBSE
 - ⚙️ Project Commands : Gestion de projets multi-modèles
 
 ---
@@ -39,39 +43,44 @@ Le module **`commands`** de GenAptitude expose l'API backend Rust au frontend Ty
 ### Structure Modulaire
 
 ```
+
 commands/
-├── mod.rs                      # Exports publics
-├── blockchain_commands.rs      # Commandes Fabric + VPN (289 lignes)
-├── json_db_commands.rs         # Commandes base de données (264 lignes)
-├── ai_commands.rs              # ⚙️ Placeholder
-├── code_commands.rs            # ⚙️ Placeholder
-├── file_commands.rs            # ⚙️ Placeholder
-├── model_commands.rs           # ⚙️ Placeholder
-└── project_commands.rs         # ⚙️ Placeholder
+├── mod.rs \# Exports publics
+├── blockchain_commands.rs \# Commandes Fabric + VPN (289 lignes)
+├── json_db_commands.rs \# Commandes base de données (264 lignes)
+├── model_commands.rs \# Commandes Model Engine (Chargement, Analyse)
+├── ai_commands.rs \# ⚙️ Placeholder
+├── code_commands.rs \# ⚙️ Placeholder
+├── file_commands.rs \# ⚙️ Placeholder
+└── project_commands.rs \# ⚙️ Placeholder
+
 ```
 
 ### Flux de Communication Tauri
 
 ```
+
 ┌─────────────────────────────────────────────────────────────┐
-│                   Frontend (TypeScript/React)                │
-│  invoke("jsondb_query_collection", { ... })                 │
+│ Frontend (TypeScript/React) │
+│ invoke("jsondb_query_collection", { ... }) │
 └─────────────────────────┬─────────────────────────────────────┘
-                          │ IPC (JSON Serialization)
-                          ▼
+│ IPC (JSON Serialization)
+▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Rust Backend (Commands Module)                  │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  #[tauri::command] async fn jsondb_query(...)         │  │
-│  └──────────────────────┬────────────────────────────────┘  │
-│                         │ (Async/Tokio)                     │
-│                         ▼                                   │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  JsonDb Services (Thread-Safe RwLock/Mutex)           │  │
-│  │  • CollectionsManager (CRUD synchrone)                │  │
-│  │  • QueryEngine (Recherche asynchrone)                 │  │
-│  └───────────────────────────────────────────────────────┘  │
+│ Rust Backend (Commands Module) │
+│ ┌───────────────────────────────────────────────────────┐ │
+│ │ \#[tauri::command] async fn jsondb_query(...) │ │
+│ └──────────────────────┬────────────────────────────────┘ │
+│ │ (Async/Tokio) │
+│ ▼ │
+│ ┌───────────────────────────────────────────────────────┐ │
+│ │ Core Services (Thread-Safe / State) │ │
+│ │ • CollectionsManager (CRUD synchrone) │ │
+│ │ • ModelLoader (Chargement sémantique) │ │
+│ │ • QueryEngine (Recherche asynchrone) │ │
+│ └───────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
+
 ```
 
 ---
@@ -182,41 +191,31 @@ pub async fn jsondb_query_collection(
 
 **Note** : L'argument `query_json` est une chaîne JSON représentant l'objet `Query` complet (incluant filtres, tris, etc.).
 
-**Structure de la Requête (JSON)** :
+---
 
-```json
-{
-  "collection": "articles",
-  "filter": {
-    "operator": "and",
-    "conditions": [{ "field": "status", "operator": "eq", "value": "published" }]
-  },
-  "sort": [{ "field": "createdAt", "order": "desc" }],
-  "limit": 20,
-  "offset": 0
-}
+## 📚 Module `model_commands`
+
+**Responsabilité** : Interactions de haut niveau avec le modèle Arcadia (chargement sémantique, validation).
+
+#### `load_project_model`
+
+Charge tout le projet en mémoire dans une structure typée (`ProjectModel`).
+
+```rust
+#[tauri::command]
+pub async fn load_project_model(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+) -> Result<ProjectModel, String>
 ```
 
-**Exemple Frontend** :
+**Comportement** :
 
-```typescript
-const query = {
-  collection: 'articles',
-  filter: {
-    /* ... */
-  },
-  limit: 10,
-};
-
-const result = await invoke('jsondb_query_collection', {
-  space: 'un2',
-  db: '_system',
-  bucket: 'articles', // Paramètre requis par la signature mais ignoré
-  queryJson: JSON.stringify(query),
-});
-
-console.log(`Found ${result.documents.length} items`);
-```
+1.  Clone le `StorageEngine` (léger via Arc).
+2.  Lance un thread bloquant (`spawn_blocking`) pour le chargement lourd.
+3.  Utilise `ModelLoader` pour scanner les collections et résoudre les types JSON-LD.
+4.  Retourne le modèle structuré (`oa`, `sa`, `la`, `pa`, `epbs`).
 
 ---
 
@@ -296,6 +295,12 @@ pub async fn vpn_get_status(client: State<'_, InnernetClient>) -> Result<Network
 | `jsondb_list_all`           | Read  | Charge tous les docs          | ✗     |
 | `jsondb_query_collection`   | Query | Moteur de recherche complet   | ✓     |
 
+### Model Engine (1 Commande)
+
+| Commande             | Type  | Description                             | Async |
+| -------------------- | ----- | --------------------------------------- | ----- |
+| `load_project_model` | Model | Chargement sémantique complet (OA-EPBS) | ✓     |
+
 ### Blockchain & VPN (14 Commandes)
 
 | Commande                 | Type   | Description         | Async |
@@ -329,9 +334,14 @@ pub async fn vpn_get_status(client: State<'_, InnernetClient>) -> Result<Network
     - Les erreurs Rust (`anyhow::Error`) sont converties en chaînes pour être affichées dans le frontend.
 
 3.  **État** :
+
     - `FabricClient` et `InnernetClient` sont injectés via `State<T>`.
     - `CollectionsManager` est instancié à la volée pour chaque commande DB (léger et stateless).
 
 ---
 
 **Dernière mise à jour** : Architecture Async/RwLock - Novembre 2025
+
+```
+
+```

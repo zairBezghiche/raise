@@ -1,6 +1,8 @@
+// FICHIER : src-tauri/src/commands/model_commands.rs
+
 use crate::json_db::storage::StorageEngine;
-use crate::model_engine::loader::ProjectLoader;
-use crate::model_engine::model::ProjectModel;
+use crate::model_engine::loader::ModelLoader;
+use crate::model_engine::types::ProjectModel;
 use tauri::{command, State};
 
 /// Charge l'intégralité du modèle en mémoire pour analyse.
@@ -11,16 +13,15 @@ pub async fn load_project_model(
     space: String,
     db: String,
 ) -> Result<ProjectModel, String> {
-    // CORRECTION : On clone le moteur pour en avoir une copie "possédée" (Owned)
-    // Cela permet de le passer au thread 'static de spawn_blocking.
-    // Le clonage est léger car le cache interne utilise Arc.
+    // On clone le moteur pour en avoir une copie "possédée" (Owned) indépendante de Tauri
     let storage_engine = storage.inner().clone();
 
     // On délègue le travail lourd à un thread dédié
     let model = tauri::async_runtime::spawn_blocking(move || {
-        // storage_engine est maintenant déplacé (move) dans le thread
-        let loader = ProjectLoader::new(&storage_engine, &space, &db);
-        loader.load_full_project()
+        let loader = ModelLoader::from_engine(&storage_engine, &space, &db);
+
+        // CORRECTION ICI : load_full_model au lieu de load_full_project
+        loader.load_full_model()
     })
     .await
     .map_err(|e| format!("Thread error: {e}"))?

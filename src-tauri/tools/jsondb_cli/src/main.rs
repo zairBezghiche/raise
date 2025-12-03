@@ -1,6 +1,6 @@
 // FICHIER : src-tauri/tools/jsondb_cli/src/main.rs
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use serde_json::Value;
@@ -31,10 +31,11 @@ FONCTIONNALITÉS :
   - CRUD (Create, Read, Update, Delete) sur les documents
   - Moteur de requête SQL
   - Import/Export de données
-  - Exécution de transactions atomiques
+  - Exécution de transactions atomiques (ACID) avec support WAL
 
 VARIABLES D'ENVIRONNEMENT :
   JSONDB_DATA_ROOT : Chemin vers le dossier de stockage (défaut: ./data)
+  PATH_GENAPTITUDE_DATASET : Racine pour les imports relatifs (InsertFrom)
 "#
 )]
 struct Cli {
@@ -166,13 +167,17 @@ LIMITATIONS ACTUELLES :
     /// Exécute une transaction atomique depuis un fichier
     #[command(long_about = r#"
 Lit un fichier JSON contenant un tableau d'opérations et les exécute de manière atomique.
+Supporte l'opération spéciale 'insertFrom' pour charger des données externes.
 
 FORMAT DU FICHIER :
-[
-  { "type": "insert", "collection": "logs", "id": "1", "document": {...} },
-  { "type": "update", "collection": "users", "id": "u1", "document": {...} },
-  { "type": "delete", "collection": "temp", "id": "t1" }
-]
+{
+  "operations": [
+    { "type": "insert", "collection": "logs", "id": "1", "document": {...} },
+    { "type": "insertFrom", "collection": "data", "path": "$PATH_GENAPTITUDE_DATASET/file.json" },
+    { "type": "update", "collection": "users", "id": "u1", "document": {...} },
+    { "type": "delete", "collection": "temp", "id": "t1" }
+  ]
+}
 "#)]
     Transaction {
         /// Chemin vers le fichier de transaction (.json)
@@ -321,8 +326,19 @@ async fn main() -> Result<()> {
             let content = fs::read_to_string(&file).map_err(|e| {
                 anyhow::anyhow!("Impossible de lire le fichier de transaction : {}", e)
             })?;
-            let ops: Vec<TxOp> = serde_json::from_str(&content)
-                .map_err(|e| anyhow::anyhow!("Format de transaction invalide : {}", e))?;
+
+            // On désérialise d'abord dans une structure wrapper
+            #[derive(Deserialize)]
+            struct TxRequest {
+                operations: Vec<TxOp>,
+            }
+            // Supporte à la fois le format { "operations": [...] } et le format direct [...]
+            let ops: Vec<TxOp> = if let Ok(req) = serde_json::from_str::<TxRequest>(&content) {
+                req.operations
+            } else {
+                serde_json::from_str::<Vec<TxOp>>(&content)
+                    .map_err(|e| anyhow::anyhow!("Format de transaction invalide : {}", e))?
+            };
 
             let tm = TransactionManager::new(&config, &cli.space, &cli.db);
 
@@ -354,6 +370,37 @@ async fn main() -> Result<()> {
                         TxOp::Delete { collection, id } => {
                             tx.operations.push(Operation::Delete { collection, id });
                         }
+                        TxOp::InsertFrom { collection, path } => {
+                            // Gestion spéciale pour charger le JSON depuis un fichier externe
+                            // Supporte les variables d'env simples comme $PATH_GENAPTITUDE_DATASET
+                            let dataset_root = std::env::var("PATH_GENAPTITUDE_DATASET")
+                                .unwrap_or_else(|_| ".".to_string());
+
+                            let resolved_path =
+                                path.replace("$PATH_GENAPTITUDE_DATASET", &dataset_root);
+                            let path_buf = PathBuf::from(&resolved_path);
+
+                            let content = fs::read_to_string(&path_buf).with_context(|| {
+                                format!("InsertFrom: impossible de lire {}", resolved_path)
+                            })?;
+
+                            let doc: Value = serde_json::from_str(&content).with_context(|| {
+                                format!("InsertFrom: JSON invalide dans {}", resolved_path)
+                            })?;
+
+                            // Si le document n'a pas d'ID, on en génère un pour la transaction
+                            let id = doc
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+                            tx.operations.push(Operation::Insert {
+                                collection,
+                                id,
+                                document: doc,
+                            });
+                        }
                     }
                 }
                 Ok(())
@@ -367,7 +414,7 @@ async fn main() -> Result<()> {
 
 // Structure locale pour désérialiser le fichier de transaction JSON
 #[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "camelCase")] // camelCase pour aligner avec le reste
 enum TxOp {
     Insert {
         collection: String,
@@ -382,5 +429,10 @@ enum TxOp {
     Delete {
         collection: String,
         id: String,
+    },
+    // Opération spéciale CLI : charge un fichier JSON
+    InsertFrom {
+        collection: String,
+        path: String,
     },
 }

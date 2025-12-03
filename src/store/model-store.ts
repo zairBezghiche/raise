@@ -1,42 +1,59 @@
-import { create } from 'zustand'
+// FICHIER : src/store/model-store.ts
 
-export type ArcadiaLayer = 'OA' | 'SA' | 'LA' | 'PA'
-
-export interface ModelElement {
-  id: string
-  name: string
-  type: string
-  layer?: ArcadiaLayer
-  parentId?: string | null
-  childrenIds?: string[]
-  metadata?: Record<string, unknown>
-}
+import { create } from 'zustand';
+import type { ProjectModel, ArcadiaElement } from '@/types/model.types';
 
 export interface ModelStoreState {
-  currentModelId?: string
-  elementsById: Record<string, ModelElement>
-  selectedElementId?: string
+  // État
+  project: ProjectModel | null;
+  isLoading: boolean;
+  error: string | null;
 
-  setCurrentModel: (id: string | undefined) => void
-  setElements: (elements: ModelElement[]) => void
-  selectElement: (id: string | undefined) => void
+  // Indexation rapide
+  elementsById: Record<string, ArcadiaElement>;
+
+  // Actions
+  setProject: (model: ProjectModel) => void;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+
+  // Helpers
+  getElementById: (id: string) => ArcadiaElement | undefined;
 }
 
-export const useModelStore = create<ModelStoreState>((set) => ({
-  currentModelId: undefined,
+export const useModelStore = create<ModelStoreState>((set, get) => ({
+  project: null,
+  isLoading: false,
+  error: null,
   elementsById: {},
-  selectedElementId: undefined,
 
-  setCurrentModel: (id) => set({ currentModelId: id }),
+  setProject: (model) => {
+    // On indexe tout à plat pour les recherches rapides O(1)
+    const map: Record<string, ArcadiaElement> = {};
 
-  setElements: (elements) =>
-    set(() => {
-      const map: Record<string, ModelElement> = {}
-      for (const el of elements) {
-        map[el.id] = el
-      }
-      return { elementsById: map }
-    }),
+    const indexLayer = (elements: ArcadiaElement[]) => {
+      elements.forEach((el) => {
+        map[el.id] = el;
+      });
+    };
 
-  selectElement: (id) => set({ selectedElementId: id }),
-}))
+    if (model.oa) {
+      indexLayer(model.oa.actors);
+      indexLayer(model.oa.activities);
+      // ... ajouter les autres listes si besoin
+    }
+    if (model.sa) {
+      indexLayer(model.sa.functions);
+      indexLayer(model.sa.components);
+    }
+    // ... LA, PA, EPBS
+
+    set({ project: model, elementsById: map, error: null });
+  },
+
+  setLoading: (isLoading) => set({ isLoading }),
+
+  setError: (error) => set({ error }),
+
+  getElementById: (id) => get().elementsById[id],
+}));

@@ -1,206 +1,177 @@
 # Module json_db
 
-> Cette version reflète les évolutions majeures du code : l'introduction du StorageEngine pour le cache, le support complet des transactions ACID (WAL), le moteur d'indexation (Hash/BTree/Text) et l'optimiseur de requêtes.
+> **Version :** 1.2
+> **Mise à jour :** Novembre 2025
+> **Nouveautés :** StorageEngine, Transactions ACID, Indexation Binaire, **Couche Sémantique JSON-LD**.
 
 ---
 
 ## 📦 Vue d'Ensemble
 
-Le module **json_db** est une base de données orientée documents JSON souveraine, transactionnelle et optimisée pour l'architecture locale de Tauri. Elle combine la flexibilité du NoSQL avec la rigueur des schémas JSON.
+Le module **json_db** est une base de données orientée documents JSON souveraine, transactionnelle et sémantique. Elle constitue le socle de persistance de la plateforme GenAptitude.
+
+Elle ne se contente pas de stocker des données : elle structure la connaissance via des **schémas JSON** stricts et assure l'interopérabilité métier via **JSON-LD**.
 
 ### Caractéristiques Principales
 
-- **Stockage Souverain** : Données stockées en fichiers JSON lisibles, organisés hiérarchiquement (Espace > Base > Collection).
-
-- **Transactions ACID** : Support complet des transactions multi-documents grâce à un Write-Ahead Log (WAL) (`_wal.jsonl`) et un gestionnaire de verrous, garantissant l'atomicité et la durabilité.
-
-- **Moteur de Stockage (StorageEngine)** : Nouvelle couche d'abstraction thread-safe gérant la configuration et le cache en mémoire (Index DB, Schémas) pour des performances élevées en lecture.
-
-- **Indexation Avancée** : Support des index Hash, B-Tree et Text (Full-text simple), persistés au format binaire (bincode) et mis à jour atomiquement avec les données.
-
-- **Moteur de Requêtes Intelligent** : Exécution asynchrone avec optimiseur capable de sélectionner les index appropriés, de simplifier les filtres et de gérer le tri/pagination.
-
-- **Moteur x_compute** : Calcul automatique de champs (UUID, Timestamps, Pointeurs) exécuté avant la validation, permettant des documents auto-suffisants.
-
-- **Contexte Sémantique** : Support natif de JSON-LD pour lier les données aux ontologies métiers (Arcadia/Capella).
+- **Stockage Souverain** : Données stockées en fichiers JSON lisibles, organisés hiérarchiquement.
+- **Transactions ACID** : Atomicité et durabilité garanties par un **Write-Ahead Log (WAL)** (`_wal.jsonl`).
+- **Performance (StorageEngine)** : Cache en mémoire thread-safe (`Arc<RwLock>`) pour les lectures haute performance.
+- **Indexation Hybride** : Index Hash, B-Tree et Textuels maintenus en temps réel.
+- **Moteur x_compute** : Calcul automatique de champs (UUID, dates) avant validation.
+- **Sémantique Forte (Nouveau)** : Adhésion stricte au méta-modèle Arcadia via l'expansion JSON-LD, permettant au `ModelLoader` de typer fortement les données.
 
 ---
 
 ## 🏗️ Architecture Générale
 
-L'architecture sépare clairement la persistance (synchrone/sécurisée) de l'interrogation (asynchrone/optimisée).
-
 ### Arborescence Physique
 
-Structure définie par la variable d'environnement `PATH_GENAPTITUDE_DOMAIN` :
+Structure définie par `PATH_GENAPTITUDE_DOMAIN` :
 
 ```
-<domain_root>/
-  ├── <space>/                 # Espace de travail (ex: "un2")
-  │   ├── <database>/          # Base de données (ex: "_system")
-  │   │   ├── _system.json     # Manifeste DB (Cacheable via StorageEngine)
-  │   │   ├── _wal.jsonl       # Journal des transactions (Append-Only)
-  │   │   ├── schemas/
-  │   │   │   └── v1/          # Registre local des schémas JSON
-  │   │   └── collections/
-  │   │       └── <collection>/
-  │   │           ├── _config.json       # Définition des index & schéma lié
-  │   │           ├── _indexes/          # Fichiers d'index binaires (.idx)
-  │   │           │   ├── email.hash.idx
-  │   │           │   └── title.text.idx
-  │   │           ├── <uuid>.json        # Documents unitaires
-  │   │           └── ...
+
+\<domain_root\>/
+├── \<space\>/ \# Espace (ex: "un2")
+│ ├── \<database\>/ \# Base (ex: "\_system")
+│ │ ├── \_system.json \# Manifeste DB
+│ │ ├── \_wal.jsonl \# Journal des transactions
+│ │ ├── schemas/v1/ \# Registre des schémas JSON
+│ │ └── collections/
+│ │ └── \<collection\>/
+│ │ ├── \_config.json
+│ │ ├── \_indexes/ \# Index binaires (.idx)
+│ │ ├── \<uuid\>.json \# Documents (JSON-LD compact)
+│ │ └── ...
+
 ```
 
 ### Composants Clés
 
-- **StorageEngine** : Le cœur de l'état partagé. Il maintient la configuration et les caches globaux (ex: le contenu de `_system.json`). Il est injecté dans l'état Tauri (`State<StorageEngine>`).
+1.  **StorageEngine** : Cœur de l'état partagé. Gère la configuration et le cache.
+2.  **CollectionsManager** : Façade CRUD. Coordonne `x_compute`, validation de schéma et persistance.
+3.  **TransactionManager** : Gère les blocs atomiques et le WAL.
+4.  **QueryEngine** : Moteur de recherche asynchrone avec optimiseur.
+5.  **JsonLdProcessor** : Moteur sémantique gérant l'expansion et la compaction des types (`oa:Actor` ↔ URI canonique).
 
-- **CollectionsManager** : Façade principale pour les opérations CRUD. Il utilise le StorageEngine pour accéder aux ressources et coordonne la validation, le calcul (`x_compute`) et la persistance.
+---
 
-- **TransactionManager** : Gère les blocs atomiques `execute(|tx| { ... })`. Il écrit dans le WAL avant d'appliquer les changements sur les fichiers et les index.
+## 🔗 Intégration Sémantique & Model Engine
 
-- **QueryEngine** : Analyse les requêtes (`Query`), utilise le `QueryOptimizer` pour déterminer la stratégie d'exécution (Index Scan vs Full Scan) et retourne les résultats filtrés.
+C'est l'évolution majeure de la version 1.2. La base de données ne stocke pas seulement des objets JSON, mais des **Concepts Métier**.
+
+### 1. Le Vocabulaire Centralisé
+
+Pour éviter les "chaînes magiques", tous les types Arcadia sont définis dans `vocabulary.rs`.
+Exemple : `arcadia_types::OA_ACTOR` = `"OperationalActor"`.
+
+### 2. Le Flux Sémantique
+
+Lorsqu'un document est chargé par le `ModelLoader` :
+
+1.  **Lecture Brute** : Le JSON stocké est lu (souvent sous forme compacte avec préfixes).
+    ```json
+    { "@type": "oa:OperationalActor", "name": "User" }
+    ```
+2.  **Expansion JSON-LD** : Le `JsonLdProcessor` utilise les contextes pour résoudre les URIs complètes.
+    ```json
+    { "@type": ["[https://genaptitude.io/ontology/arcadia/oa#OperationalActor](https://genaptitude.io/ontology/arcadia/oa#OperationalActor)"], ... }
+    ```
+3.  **Dispatch Typé** : Le `ModelLoader` compare l'URI obtenue avec le vocabulaire officiel pour instancier la bonne structure Rust (`OperationalAnalysis`, `SystemAnalysis`, etc.).
+
+### 3. Structure en Mémoire (`ProjectModel`)
+
+Les données de la DB sont projetées en mémoire dans une structure fortement typée :
+
+```rust
+pub struct ProjectModel {
+    pub oa: OperationalAnalysis, // Contient Vec<ArcadiaElement> pour OA
+    pub sa: SystemAnalysis,      // Contient Vec<ArcadiaElement> pour SA
+    pub la: LogicalArchitecture,
+    pub pa: PhysicalArchitecture,
+    pub epbs: EPBS,
+    pub meta: ProjectMeta,
+}
+```
 
 ---
 
 ## 📚 Modules Détaillés
 
-### 1. Transactions (`transactions/`)
+### 1\. Transactions (`transactions/`)
 
-Le système garantit que toutes les opérations dans un bloc réussissent ou qu'aucune n'est appliquée.
+Assure que toutes les modifications d'un bloc sont appliquées ou aucune.
 
-- **WAL (`wal.rs`)** : Toutes les opérations sont sérialisées et écrites dans `_wal.jsonl` avant modification du FS.
+- **WAL** : Écriture séquentielle avant modification disque.
+- **Recovery** : Rejoue les transactions non committées au démarrage.
 
-- **LockManager** : Gère les verrous pour éviter les conditions de course sur les collections.
+### 2\. Indexation (`indexes/`)
 
-```rust
-// Exemple d'utilisation interne (via commande Tauri)
-let tm = TransactionManager::new(cfg, "space", "db");
-tm.execute(|tx| {
-    tx.add_insert("users", "u1", json!({...}));
-    tx.add_update("accounts", "a1", None, json!({...}));
-    // Si une erreur survient ou un panic, rien n'est persisté sur disque (sauf WAL temporaire)
-    Ok(())
-})?;
-```
+- **Hash** : Recherche exacte (`eq`).
+- **BTree** : Recherche par plage (`gt`, `lt`) et tri.
+- **Text** : Recherche plein texte basique (`contains`).
+- **Persistance** : Format binaire `bincode` pour rapidité de chargement.
 
-### 2. Indexation (`indexes/`)
+### 3\. Requêtes (`query/`)
 
-Les index sont vitaux pour les performances de lecture. Ils sont gérés via un driver générique.
+- **Optimiseur** : Réorganise les filtres par sélectivité.
+- **Exécuteur** : Choisit entre Index Scan et Full Scan.
 
-**Types supportés :**
+### 4\. Schémas (`schema/`)
 
-- **Hash** : Pour les recherches exactes (`eq`).
-- **BTree** : Pour les tris et recherches par plage (`gt`, `lt`, `sort`).
-- **Text** : Index inversé pour la recherche plein texte (`contains`).
-
-**Mise à jour :** Le `CollectionsManager` et le `TransactionManager` mettent à jour les fichiers `.idx` de manière synchrone après l'écriture du document JSON.
-
-### 3. Moteur de Requêtes (`query/`)
-
-Le `QueryEngine` exécute les recherches complexes définies par la structure `Query`.
-
-- **Optimiseur (`optimizer.rs`)** : Analyse la requête pour réorganiser les conditions (les plus sélectives d'abord) et détecter les index utilisables.
-
-- **Exécuteur (`executor.rs`)** :
-  - Si un index couvre le filtre (ex: `where name = "X"` avec index Hash sur `name`), il récupère directement les IDs concernés (**Index Scan**).
-  - Sinon, il itère sur tous les documents de la collection (**Full Scan**).
-
-### 4. Schémas & Compute (`schema/`)
-
-- **SchemaRegistry** : Charge et cache les schémas JSON. Gère la résolution des `$ref` internes (`db://...`).
-
-- **x_compute** : Moteur de règles exécuté avant validation. Il gère :
-  - `uuid_v4` : Génération d'ID.
-  - `now_rfc3339` : Timestamps (`createdAt`, `updatedAt`).
-  - `ptr` : Copie de valeurs intra-document ou depuis le contexte.
+- **SchemaRegistry** : Cache les fichiers de schéma.
+- **Validator** : Validation stricte JSON Schema (Draft 2020-12).
+- **Compute** : Moteur de règles pour générer les métadonnées techniques (`id`, `createdAt`) avant insertion.
 
 ---
 
-## 💡 Guide d'Utilisation (Rust Backend)
+## 💡 Guide d'Utilisation (Rust)
 
-### Initialisation
+### Insertion (Avec validation sémantique)
 
 ```rust
-use genaptitude::json_db::storage::{JsonDbConfig, StorageEngine};
-use genaptitude::json_db::collections::manager::CollectionsManager;
+// Le document utilise un contexte JSON-LD pour abréger les types
+let doc = json!({
+    "@context": { "oa": "[https://genaptitude.io/ontology/arcadia/oa#](https://genaptitude.io/ontology/arcadia/oa#)" },
+    "@type": "oa:OperationalActor",
+    "name": "Opérateur"
+});
 
-// 1. Configuration (automatique via .env)
-let config = JsonDbConfig::from_env("/path/to/repo")?;
-
-// 2. Création du moteur (State global)
-let storage = StorageEngine::new(config);
-
-// 3. Instanciation d'un manager pour une requête spécifique
-let mgr = CollectionsManager::new(&storage, "un2", "_system");
+// insert_with_schema va :
+// 1. Calculer l'ID et les dates
+// 2. Valider contre le schéma "actor.schema.json"
+// 3. Persister le JSON
+mgr.insert_with_schema("actors", doc)?;
 ```
 
-### Écriture (CRUD)
+### Chargement du Modèle Complet
+
+Pour travailler sur le projet, on charge tout en mémoire via le `ModelLoader` qui fait le lien sémantique.
 
 ```rust
-// Insertion avec validation et calcul automatique
-// Le schéma détermine la collection cible (ex: "actors/actor.schema.json" -> "actors")
-let doc = json!({ "name": "New Project" });
-let result = mgr.insert_with_schema("projects/project.schema.json", doc)?;
-// result contient maintenant "id", "createdAt", etc.
-```
+// Utilisation du constructeur découplé (recommandé)
+let loader = ModelLoader::from_engine(&storage, "space", "db");
 
-### Recherche (Query)
+// Charge et dispatch sémantiquement tous les éléments dans les bonnes couches
+let project = loader.load_full_model()?;
 
-```rust
-use genaptitude::json_db::query::{Query, QueryEngine, QueryFilter, Condition, ComparisonOperator};
-
-// 1. Créer l'engin
-let engine = QueryEngine::new(&mgr);
-
-// 2. Construire la requête
-let query = Query::new("projects")
-    .filter(QueryFilter::and(vec![
-        Condition::eq("status", json!("active")),
-        Condition::contains("tags", json!("urgent")) // Utilise l'index TEXT si présent
-    ]))
-    .sort(vec![/* ... */])
-    .limit(20);
-
-// 3. Exécuter (Async)
-let results = engine.execute_query(query).await?;
+println!("Acteurs OA : {}", project.oa.actors.len());
+println!("Fonctions SA : {}", project.sa.functions.len());
 ```
 
 ---
 
-## 🔧 Pipeline d'Écriture (Détail Technique)
+## ⚠️ Limitations et Bonnes Pratiques
 
-Lors d'un `insert_with_schema` ou d'un commit de transaction :
-
-1. **Chargement** : Le schéma est récupéré depuis le `SchemaRegistry` (mémoire).
-
-2. **Calcul (x_compute)** : Le document est enrichi (ID, dates).
-
-3. **Validation** : Vérification stricte JSON Schema.
-
-4. **WAL** : L'opération est ajoutée au journal des transactions (si mode transactionnel).
-
-5. **Persistance** : Écriture atomique du fichier JSON (`.tmp` → `rename`).
-
-6. **Indexation** : Mise à jour des fichiers `.idx` (Hash/BTree/Text).
-
-7. **Cache Update** : Le cache du `StorageEngine` est invalidé ou mis à jour pour refléter le nouveau fichier dans `_system.json`.
+1.  **Contextes JSON-LD** : Assurez-vous que vos documents (ou schémas) définissent correctement `@context` pour que l'expansion fonctionne. Le système fournit des contextes par défaut.
+2.  **Performance** : Le chargement complet (`load_full_model`) est une opération coûteuse (I/O). Elle doit être exécutée dans un thread bloquant (`spawn_blocking`) pour ne pas figer l'interface Tauri.
+3.  **Migration** : En cas de changement de modèle de données (nouveaux champs), utilisez les migrations intégrées plutôt que de modifier les fichiers JSON à la main.
 
 ---
 
-## ⚠️ Limitations Actuelles
+**Statut :** Production  
+**Intégration :** Prêt pour le module IA (Agents)
 
-- **Jointures** : Pas de support natif des jointures (JOIN) dans les requêtes. Les relations sont gérées applicativement ou via des agrégations ultérieures.
+```
 
-- **Migrations** : Le système de migration de schéma est basique (ajout de champs/index), pas de transformations de données complexes en masse intégrées au moteur pour l'instant.
-
----
-
-## 📝 Métadonnées
-
-**Dernière mise à jour** : Architecture StorageEngine & ACID - Novembre 2025
-
-**Version** : 1.0
-
-**Statut** : Production
+```
