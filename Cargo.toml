@@ -1,5 +1,10 @@
 [workspace]
-members = ["src-tauri", "src-wasm", "src-tauri/tools/jsondb_cli"]
+members = [
+    "src-tauri",
+    "src-wasm",
+    "src-tauri/tools/jsondb_cli",
+    "src-tauri/tools/ai_cli",
+]
 resolver = "2"
 
 # Profils valables pour tout le workspace (évitent les warnings)

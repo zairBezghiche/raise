@@ -2,20 +2,36 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://genaptitude.local/schemas/v1/arcadia/oa/actor.schema.json",
   "title": "Operational Actor",
-  "description": "Une entité externe (humaine ou non) qui interagit avec le système.",
+  "description": "Logical entity that can emit/receive events and hold roles.",
+  "x_schemaVersion": "1.0.0",
+  "x_label": {
+    "fr": "Acteur Opérationnel",
+    "en": "Operational Actor"
+  },
+  "x_description": {
+    "fr": "Entité logique susceptible d'émettre/recevoir des événements et de détenir des rôles.",
+    "en": "Logical entity that can emit/receive events and hold roles."
+  },
+
   "type": "object",
+
+  "unevaluatedProperties": false,
+
   "allOf": [
     {
-      "$ref": "../../common/base.schema.json"
+      "$ref": "../../common/types/base.schema.json"
     },
+
     {
-      "$ref": "../metamodel/metamodel.schema.json#/$defs/BaseProperties"
+      "$ref": "../../metamodel/metamodel.schema.json#/$defs/BaseProperties"
     }
   ],
+
   "properties": {
     "isHuman": {
       "type": "boolean",
       "default": true,
+      "x_label": { "fr": "Est humain", "en": "Is Human" },
       "description": "Indique si l'acteur est un être humain ou un système externe."
     },
     "organization": {

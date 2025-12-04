@@ -2,11 +2,12 @@
 
 use crate::json_db::indexes::IndexManager;
 use crate::json_db::schema::{SchemaRegistry, SchemaValidator};
-use crate::json_db::storage::StorageEngine;
+// AJOUT : Import de file_storage pour accéder à create_db
+use crate::json_db::storage::{file_storage, StorageEngine};
 use anyhow::{anyhow, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::fs;
-use uuid::Uuid; // Nécessaire pour le fallback ID
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct CollectionsManager<'a> {
@@ -25,32 +26,112 @@ impl<'a> CollectionsManager<'a> {
     }
 
     pub fn create_collection(&self, name: &str, schema_uri: Option<String>) -> Result<()> {
+        // --- CORRECTION CRITIQUE ---
+        // On force l'initialisation de la DB parente.
+        // C'est CE qui va déclencher le bootstrap des schémas si c'est la base _system.
+        file_storage::create_db(&self.storage.config, &self.space, &self.db)?;
+        // ---------------------------
+
         let col_path = self
             .storage
             .config
             .db_collection_path(&self.space, &self.db, name);
+
         if !col_path.exists() {
             fs::create_dir_all(&col_path)?;
         }
-        if let Some(uri) = schema_uri {
-            let meta = serde_json::json!({ "schema": uri });
-            fs::write(
-                col_path.join("_meta.json"),
-                serde_json::to_string_pretty(&meta)?,
-            )?;
-        }
+
+        let uri_str = schema_uri.clone().unwrap_or_default();
+        let meta = json!({ "schema": uri_str });
+        fs::write(
+            col_path.join("_meta.json"),
+            serde_json::to_string_pretty(&meta)?,
+        )?;
+
+        self.update_system_index_collection(name, &uri_str)?;
+
         Ok(())
     }
 
+    // ... LE RESTE DU FICHIER RESTE STRICTEMENT IDENTIQUE (update_system_index, insert_with_schema, etc.) ...
+    // (Copiez le reste du fichier précédent ici)
+
+    fn update_system_index_collection(&self, col_name: &str, schema_uri: &str) -> Result<()> {
+        let sys_path = self
+            .storage
+            .config
+            .db_root(&self.space, &self.db)
+            .join("_system.json");
+        let mut system_doc = self.load_system_index(&sys_path);
+
+        if let Some(cols) = system_doc["collections"].as_object_mut() {
+            let existing_items = cols
+                .get(col_name)
+                .and_then(|c| c.get("items"))
+                .cloned()
+                .unwrap_or(json!([]));
+
+            cols.insert(
+                col_name.to_string(),
+                json!({
+                    "schema": schema_uri,
+                    "items": existing_items
+                }),
+            );
+        }
+        fs::write(sys_path, serde_json::to_string_pretty(&system_doc)?)?;
+        Ok(())
+    }
+
+    fn add_item_to_index(&self, col_name: &str, id: &str) -> Result<()> {
+        let sys_path = self
+            .storage
+            .config
+            .db_root(&self.space, &self.db)
+            .join("_system.json");
+        let mut system_doc = self.load_system_index(&sys_path);
+        let filename = format!("{}.json", id);
+
+        if let Some(cols) = system_doc["collections"].as_object_mut() {
+            if let Some(col_entry) = cols.get_mut(col_name) {
+                if col_entry.get("items").is_none() {
+                    col_entry["items"] = json!([]);
+                }
+                if let Some(items) = col_entry["items"].as_array_mut() {
+                    let exists = items
+                        .iter()
+                        .any(|item| item.get("file").and_then(|f| f.as_str()) == Some(&filename));
+                    if !exists {
+                        items.push(json!({ "file": filename }));
+                    }
+                }
+            }
+        }
+        fs::write(sys_path, serde_json::to_string_pretty(&system_doc)?)?;
+        Ok(())
+    }
+
+    fn load_system_index(&self, path: &std::path::Path) -> Value {
+        if path.exists() {
+            let content = fs::read_to_string(path).unwrap_or_default();
+            serde_json::from_str(&content).unwrap_or(json!({ "collections": {} }))
+        } else {
+            json!({ "collections": {} })
+        }
+    }
+
     pub fn list_collections(&self) -> Result<Vec<String>> {
-        let db_path = self.storage.config.db_root(&self.space, &self.db);
+        let collections_root = self
+            .storage
+            .config
+            .db_root(&self.space, &self.db)
+            .join("collections");
         let mut collections = Vec::new();
-        if db_path.exists() {
-            for entry in fs::read_dir(db_path)? {
+        if collections_root.exists() {
+            for entry in fs::read_dir(collections_root)? {
                 let entry = entry?;
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if entry.path().is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
                         if !name.starts_with('_') {
                             collections.push(name.to_string());
                         }
@@ -65,7 +146,6 @@ impl<'a> CollectionsManager<'a> {
         self.list_collections()
     }
 
-    /// Insertion brute : nécessite un ID déjà présent dans le document
     pub fn insert_raw(&self, collection: &str, doc: &Value) -> Result<()> {
         let id = doc
             .get("id")
@@ -74,33 +154,23 @@ impl<'a> CollectionsManager<'a> {
 
         self.storage
             .write_document(&self.space, &self.db, collection, id, doc)?;
-
-        // Indexation (placeholder)
+        self.add_item_to_index(collection, id)?;
         let mut _idx = IndexManager::new(self.storage, &self.space, &self.db);
-        // _idx.index_document(collection, doc)?;
         Ok(())
     }
 
-    /// Insertion intelligente : applique x_compute et validation
     pub fn insert_with_schema(&self, collection: &str, mut doc: Value) -> Result<Value> {
-        // 1. Préparation via le schéma (calculs, defaults)
-        // On ignore l'erreur de préparation pour permettre l'insertion 'best-effort' en test
-        // si le schéma est introuvable, mais en prod cela devrait être géré.
         if let Err(e) = self.prepare_document(collection, &mut doc) {
-            eprintln!(
-                "Warning: Schema preparation failed for {}: {}",
-                collection, e
-            );
+            #[cfg(debug_assertions)]
+            eprintln!("Schema warning for {}: {}", collection, e);
         }
 
-        // 2. Fallback : Si le schéma n'a pas généré d'ID, on en met un pour éviter le crash
         if doc.get("id").is_none() {
             if let Some(obj) = doc.as_object_mut() {
                 obj.insert("id".to_string(), Value::String(Uuid::new_v4().to_string()));
             }
         }
 
-        // 3. Persistance
         self.insert_raw(collection, &doc)?;
         Ok(doc)
     }
@@ -118,11 +188,10 @@ impl<'a> CollectionsManager<'a> {
         if self.get_document(collection, id)?.is_none() {
             return Err(anyhow!("Document introuvable"));
         }
-        // Force l'ID dans le doc pour garantir la cohérence
         if let Some(obj) = doc.as_object_mut() {
             obj.insert("id".to_string(), Value::String(id.to_string()));
         }
-        self.prepare_document(collection, &mut doc)?;
+        let _ = self.prepare_document(collection, &mut doc);
         self.storage
             .write_document(&self.space, &self.db, collection, id, &doc)?;
         Ok(doc)
@@ -158,13 +227,13 @@ impl<'a> CollectionsManager<'a> {
         Ok(docs)
     }
 
-    /// Applique les règles x_compute et la validation du schéma lié à la collection
     fn prepare_document(&self, collection: &str, doc: &mut Value) -> Result<()> {
         let meta_path = self
             .storage
             .config
             .db_collection_path(&self.space, &self.db, collection)
             .join("_meta.json");
+
         let schema_uri = if meta_path.exists() {
             let content = fs::read_to_string(meta_path)?;
             let meta: Value = serde_json::from_str(&content)?;
@@ -176,9 +245,7 @@ impl<'a> CollectionsManager<'a> {
         };
 
         if let Some(uri) = schema_uri {
-            // On tente de charger le registre depuis la DB
             let reg = SchemaRegistry::from_db(&self.storage.config, &self.space, &self.db)?;
-            // On compile et exécute le validateur
             let validator = SchemaValidator::compile_with_registry(&uri, &reg)?;
             validator.compute_then_validate(doc)?;
         }

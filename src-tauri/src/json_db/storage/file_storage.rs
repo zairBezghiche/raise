@@ -4,16 +4,14 @@ use crate::json_db::storage::JsonDbConfig;
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-// --- AJOUT : Enum DropMode ---
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DropMode {
-    Soft, // Renomme en .deleted-<timestamp>
-    Hard, // Supprime définitivement
+    Soft,
+    Hard,
 }
 
-/// Vérifie si la DB existe
 pub fn open_db(config: &JsonDbConfig, space: &str, db: &str) -> Result<()> {
     let db_path = config.db_root(space, db);
     if !db_path.exists() {
@@ -22,21 +20,62 @@ pub fn open_db(config: &JsonDbConfig, space: &str, db: &str) -> Result<()> {
     Ok(())
 }
 
-/// Crée l'arborescence de la DB
 pub fn create_db(config: &JsonDbConfig, space: &str, db: &str) -> Result<()> {
     let db_path = config.db_root(space, db);
+
+    // 1. Création de la structure
     if !db_path.exists() {
         fs::create_dir_all(&db_path)?;
-        fs::create_dir_all(db_path.join("_system").join("schemas"))?;
+    }
+
+    // 2. AUTO-BOOTSTRAP : Si c'est la base système, on assure son intégrité
+    if db == "_system" {
+        bootstrap_system_db(config, space, db)?;
+    }
+
+    Ok(())
+}
+
+/// Fonction interne pour garantir l'intégrité de la base système
+fn bootstrap_system_db(config: &JsonDbConfig, space: &str, db: &str) -> Result<()> {
+    let schemas_dest = config.db_schemas_root(space, db).join("v1");
+
+    if !schemas_dest.exists() {
+        // 1. Création du dossier destination
+        fs::create_dir_all(&schemas_dest)?;
+
+        let candidates = vec![
+            PathBuf::from("schemas/v1"),       // Run root
+            PathBuf::from("../schemas/v1"),    // Run src-tauri
+            PathBuf::from("../../schemas/v1"), // Run tools
+            // AJOUT DE SÉCURITÉ : Chemin absolu basé sur une hypothèse courante ou variable d'env
+            PathBuf::from("/home/zair/genaptitude/schemas/v1"),
+        ];
+
+        // AJOUT DE LOG DE DEBUG
+        println!(
+            "🔍 [JSON-DB] Bootstrap: Recherche des schémas dans : {:?}",
+            candidates
+        );
+
+        if let Some(source) = candidates.iter().find(|p| p.exists()) {
+            println!(
+                "✅ [JSON-DB] Schémas trouvés dans {:?} -> Copie en cours...",
+                source
+            );
+            copy_dir_recursive(source, &schemas_dest)?;
+        } else {
+            eprintln!("❌ [JSON-DB] CRITIQUE : Aucun dossier de schémas source trouvé !");
+        }
     }
     Ok(())
 }
 
-// --- AJOUT : Fonction drop_db ---
+// --- RESTE DU FICHIER INCHANGÉ (CRUD) ---
+
 pub fn drop_db(config: &JsonDbConfig, space: &str, db: &str, mode: DropMode) -> Result<()> {
     let db_path = config.db_root(space, db);
     if !db_path.exists() {
-        // Idempotence : si n'existe pas, on considère que c'est un succès
         return Ok(());
     }
 
@@ -47,7 +86,7 @@ pub fn drop_db(config: &JsonDbConfig, space: &str, db: &str, mode: DropMode) -> 
         }
         DropMode::Soft => {
             let timestamp = chrono::Utc::now().timestamp();
-            let parent = db_path.parent().unwrap(); // Space directory
+            let parent = db_path.parent().unwrap();
             let new_name = format!("{}.deleted-{}", db, timestamp);
             let new_path = parent.join(new_name);
             fs::rename(&db_path, &new_path).with_context(|| "Failed to soft drop DB")?;
@@ -56,7 +95,6 @@ pub fn drop_db(config: &JsonDbConfig, space: &str, db: &str, mode: DropMode) -> 
     Ok(())
 }
 
-/// Écrit un document sur le disque (Atomique)
 pub fn write_document(
     config: &JsonDbConfig,
     space: &str,
@@ -77,7 +115,6 @@ pub fn write_document(
     Ok(())
 }
 
-/// Lit un document depuis le disque
 pub fn read_document(
     config: &JsonDbConfig,
     space: &str,
@@ -98,7 +135,6 @@ pub fn read_document(
     Ok(Some(doc))
 }
 
-/// Supprime un document
 pub fn delete_document(
     config: &JsonDbConfig,
     space: &str,
@@ -115,8 +151,6 @@ pub fn delete_document(
     }
     Ok(())
 }
-
-// --- Helpers Atomiques ---
 
 pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> Result<()> {
     let path = path.as_ref();
@@ -136,4 +170,27 @@ pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> Resu
 
 pub fn atomic_write_binary<P: AsRef<Path>>(path: P, content: &[u8]) -> Result<()> {
     atomic_write(path, content)
+}
+
+/// Helper récursif pour copier les dossiers
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if ty.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            // On ne copie que les .json
+            if src_path.extension().map_or(false, |e| e == "json") {
+                fs::copy(&src_path, &dst_path)?;
+            }
+        }
+    }
+    Ok(())
 }

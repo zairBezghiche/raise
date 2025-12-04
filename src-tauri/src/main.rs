@@ -2,22 +2,30 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::env;
+use std::path::PathBuf;
 use tauri::Manager;
 
-// CORRECTION : On n'utilise PAS 'mod' ici.
-// On importe les modules depuis la librairie 'genaptitude' (définie dans lib.rs)
-use genaptitude::commands::{blockchain_commands, json_db_commands, model_commands};
+use genaptitude::commands::{ai_commands, blockchain_commands, json_db_commands, model_commands};
 use genaptitude::json_db::storage::{JsonDbConfig, StorageEngine};
 
 fn main() {
+    dotenvy::dotenv().ok();
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("failed to get app data dir");
-            let db_root = app_data_dir.join("genaptitude_db");
+            let db_root = if let Ok(env_path) = env::var("PATH_GENAPTITUDE_DOMAIN") {
+                println!("📂 Utilisation de la DB personnalisée : {}", env_path);
+                PathBuf::from(env_path)
+            } else {
+                let app_data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .expect("failed to get app data dir");
+                let path = app_data_dir.join("genaptitude_db");
+                println!("📂 Utilisation de la DB système par défaut : {:?}", path);
+                path
+            };
 
             // Création de la config
             let config = JsonDbConfig::new(db_root);
@@ -41,6 +49,8 @@ fn main() {
             json_db_commands::jsondb_list_all,
             // Commandes Modèle
             model_commands::load_project_model,
+            // Commandes Modèle
+            ai_commands::ai_chat,
             // Commandes Blockchain
             blockchain_commands::fabric_ping,
             blockchain_commands::fabric_submit_transaction,

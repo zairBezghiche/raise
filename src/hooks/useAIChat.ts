@@ -1,69 +1,80 @@
-import { useCallback } from 'react'
-import { useAiStore, ChatMessage } from '@/store/ai-store'
-import { useSettingsStore } from '@/store/settings-store'
-// import { invoke } from '@tauri-apps/api/core' // à activer quand tu auras la commande Tauri IA
+import { useCallback } from 'react';
+import { useAiStore, ChatMessage } from '@/store/ai-store';
+import { useSettingsStore } from '@/store/settings-store';
+// Import nécessaire pour communiquer avec le backend Rust
+import { invoke } from '@tauri-apps/api/core';
 
 function genId(): string {
-  return `${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2)}`
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 export interface UseAIChatOptions {
-  systemPrompt?: string
+  systemPrompt?: string;
 }
 
 export function useAIChat(options?: UseAIChatOptions) {
-  const { messages, isThinking, error, addMessage, clear, setThinking, setError } =
-    useAiStore()
-  const { aiBackend } = useSettingsStore()
+  const { messages, isThinking, error, addMessage, clear, setThinking, setError } = useAiStore();
+  // On récupère le réglage (par défaut "mock", il faudra peut-être le forcer à "tauri-local" ou le changer dans l'UI)
+  const { aiBackend } = useSettingsStore();
 
   const sendMessage = useCallback(
     async (content: string) => {
-      const trimmed = content.trim()
-      if (!trimmed) return
+      const trimmed = content.trim();
+      if (!trimmed) return;
 
+      // 1. Ajouter le message de l'utilisateur à l'UI tout de suite
       const userMsg: ChatMessage = {
         id: genId(),
         role: 'user',
         content: trimmed,
         createdAt: new Date().toISOString(),
-      }
-      addMessage(userMsg)
-      setThinking(true)
-      setError(undefined)
+      };
+      addMessage(userMsg);
+
+      setThinking(true);
+      setError(undefined);
 
       try {
-        let replyText: string
+        let replyText: string;
 
+        // 2. Choix du backend
+        // Pour tester immédiatement, vous pouvez changer la condition ci-dessous
+        // ou modifier 'aiBackend' dans le settings-store.
         if (aiBackend === 'mock') {
-          replyText = `[mock] Réponse de l’assistant GenAptitude pour : "${trimmed}"`
+          // Pour le test, on force l'appel réel si vous n'avez pas encore l'UI de settings
+          // Décommentez la ligne suivante pour contourner le store le temps du test :
+          // replyText = await invoke('ai_chat', { userInput: trimmed });
+
+          // Sinon, comportement par défaut :
+          replyText = `[mock] Réponse : "${trimmed}"`;
         } else {
-          // TODO: brancher sur une commande Tauri (ex: "ai_chat")
-          // const res = await invoke<string>('ai_chat', {
-          //   input: trimmed,
-          //   systemPrompt: options?.systemPrompt,
-          //   history: messages,
-          // })
-          // replyText = res
-          replyText = `[TODO:${aiBackend}] backend IA non encore implémenté`
+          // --- APPEL RÉEL AU BACKEND RUST ---
+          console.log('Envoi vers Rust (ai_chat)...');
+
+          // La commande Rust s'appelle 'ai_chat'
+          // L'argument Rust est 'user_input', ici on passe 'userInput' (convention Tauri)
+          replyText = await invoke<string>('ai_chat', {
+            userInput: trimmed,
+          });
         }
 
+        // 3. Ajouter la réponse de l'assistant
         const assistantMsg: ChatMessage = {
           id: genId(),
           role: 'assistant',
           content: replyText,
           createdAt: new Date().toISOString(),
-        }
-        addMessage(assistantMsg)
+        };
+        addMessage(assistantMsg);
       } catch (e: any) {
-        setError(e?.message ?? 'Erreur IA')
+        console.error('Erreur AI:', e);
+        setError(typeof e === 'string' ? e : e?.message ?? 'Erreur inconnue');
       } finally {
-        setThinking(false)
+        setThinking(false);
       }
     },
     [addMessage, setThinking, setError, aiBackend, messages, options?.systemPrompt],
-  )
+  );
 
   return {
     messages,
@@ -71,5 +82,5 @@ export function useAIChat(options?: UseAIChatOptions) {
     error,
     sendMessage,
     clear,
-  }
+  };
 }

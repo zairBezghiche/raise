@@ -1,207 +1,328 @@
-import { useState, useRef, useEffect } from 'react'
-import { collectionService } from '@/services/json-db/collection-service'
-import { createQuery } from '@/services/json-db/query-service'
-import { createTransaction, TransactionService } from '@/services/json-db/transaction-service'
-import { modelService } from '@/services/model-service'
-import { useModelStore } from '@/store/model-store'
-import { Button } from '@/components/shared/Button'
-import { InputBar } from '@/components/ai-chat/InputBar'
-import type { OperationRequest } from '@/types/json-db.types'
-
-// Styles pour l'affichage
-const OP_STYLES: Record<string, { color: string, label: string }> = {
-  Insert: { color: '#4ade80', label: 'INSERT' },
-  Update: { color: '#60a5fa', label: 'UPDATE' },
-  Delete: { color: '#f87171', label: 'DELETE' }
-};
-
-const COLLECTION_NAME = 'smoke_test_transactions';
+import { useState, useEffect } from 'react';
+import { collectionService } from '@/services/json-db/collection-service';
+import { createQuery } from '@/services/json-db/query-service';
+import { modelService } from '@/services/model-service';
+import { useModelStore } from '@/store/model-store';
+import { InputBar } from '@/components/ai-chat/InputBar';
 
 export function JsonDbTester() {
+  // --- État UI ---
+  const [logs, setLogs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'write' | 'search'>('write');
-  const [logs, setLogs] = useState<string[]>([])
-  const [items, setItems] = useState<any[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<any[]>([])
-  const [searchStats, setSearchStats] = useState<string>('')
-  
-  const [pendingOps, setPendingOps] = useState<OperationRequest[]>([])
-  const txRef = useRef<TransactionService>(createTransaction())
 
-  // Connexion au store global pour mettre à jour le modèle une fois chargé
-  const setProject = useModelStore(s => s.setProject);
+  // --- État Données ---
+  const [targetCollection, setTargetCollection] = useState('actors'); // Par défaut 'actors' pour le test RAG
+  const [items, setItems] = useState<any[]>([]);
 
-  const addLog = (msg: string) => setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev])
+  // --- État Insertion Manuelle (Pour le test RAG) ---
+  const [jsonInput, setJsonInput] = useState<string>(
+    JSON.stringify(
+      {
+        '@context': {
+          oa: 'https://genaptitude.io/ontology/arcadia/oa#',
+        },
+        '@type': 'oa:OperationalActor',
+        name: 'Opérateur de Drone',
+        description: 'Personne chargée du pilotage manuel du drone via la station sol',
+      },
+      null,
+      2,
+    ),
+  );
 
-  useEffect(() => { initCollection(); }, []);
+  // --- État Recherche ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchStats, setSearchStats] = useState<string>('');
 
-  const initCollection = async () => {
+  const setProject = useModelStore((s) => s.setProject);
+
+  const addLog = (msg: string) =>
+    setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
+
+  // Chargement initial
+  useEffect(() => {
+    refreshItems();
+  }, [targetCollection]);
+
+  // 1. Création de collection
+  const handleCreateCollection = async () => {
     try {
-      await collectionService.createCollection(COLLECTION_NAME).catch(() => {});
+      await collectionService.createCollection(targetCollection);
+      addLog(`✅ Collection '${targetCollection}' créée (ou déjà existante).`);
       await refreshItems();
     } catch (e: any) {
-      addLog(`⚠️ Erreur init: ${e}`);
+      addLog(`❌ Erreur création: ${e}`);
     }
-  }
+  };
+
+  // 2. Insertion de document JSON brut
+  const handleInsertJson = async () => {
+    if (!targetCollection.trim()) {
+      addLog('❌ Erreur: Le nom de la collection est vide !');
+      return;
+    }
+    try {
+      const doc = JSON.parse(jsonInput);
+      const saved = await collectionService.insertDocument(targetCollection, doc);
+      addLog(`✅ Document inséré dans '${targetCollection}' (ID: ${saved.id})`);
+      await refreshItems();
+    } catch (e: any) {
+      addLog(`❌ Erreur insertion JSON: ${e}`);
+    }
+  };
+
+  // 3. Rafraîchissement liste
   const refreshItems = async () => {
     try {
-      const docs = await collectionService.listAll(COLLECTION_NAME);
-      // CORRECTION : Vérification que docs est bien un tableau
+      const docs = await collectionService.listAll(targetCollection);
       if (Array.isArray(docs)) {
-          setItems(docs.reverse());
+        setItems(docs.reverse());
       } else {
-          addLog(`⚠️ Format inattendu reçu: ${JSON.stringify(docs)}`);
-          setItems([]);
+        setItems([]);
       }
     } catch (e: any) {
-      addLog(`⚠️ Erreur lecture: ${e}`);
+      // On ignore l'erreur si la collection n'existe pas encore
+      setItems([]);
     }
-  }
+  };
 
+  // 4. Recherche
   const handleSearch = async (text: string) => {
     if (!text.trim()) {
-      setSearchResults([]); setSearchStats(''); return;
+      setSearchResults([]);
+      return;
     }
     try {
       const start = performance.now();
-      
-      const query = createQuery(COLLECTION_NAME)
-        .where('name', 'Contains', text)
-        .orderBy('updatedAt', 'Desc')
-        .limit(20)
-        .build();
+      const query = createQuery(targetCollection).where('name', 'Contains', text).limit(20).build();
 
-      // Appel avec 2 arguments : collection et query.
-      // Le 3ème argument (options) est optionnel dans la définition du service ci-dessus.
-      const results = await collectionService.queryDocuments(COLLECTION_NAME, query);
-      
+      const results = await collectionService.queryDocuments(targetCollection, query);
       const duration = (performance.now() - start).toFixed(2);
+
       setSearchResults(results);
       setSearchStats(`${results.length} résultat(s) en ${duration}ms`);
-      addLog(`🔍 Recherche "${text}" : ${results.length} hits`);
+      addLog(`🔍 Recherche "${text}" sur ${targetCollection}`);
     } catch (e: any) {
       addLog(`❌ Erreur recherche: ${e}`);
     }
-  }
+  };
 
-  const stageInsert = () => {
-    const docName = `Doc ${items.length + pendingOps.length + 1}`;
-    txRef.current.add(COLLECTION_NAME, { 
-      name: docName, 
-      status: 'draft', 
-      updatedAt: new Date().toISOString()
-    });
-    updatePending();
-  }
-
-  const stageUpdate = (doc: any) => {
-    txRef.current.update(COLLECTION_NAME, doc.id, { 
-      ...doc, name: `${doc.name} (ed)`, status: 'published' 
-    });
-    updatePending();
-  }
-
-  const stageDelete = (id: string) => {
-    txRef.current.delete(COLLECTION_NAME, id);
-    updatePending();
-  }
-
-  const updatePending = () => setPendingOps([...txRef.current.getPendingOperations()]);
-
-  const handleCommit = async () => {
-    if (pendingOps.length === 0) return;
+  // 5. Chargement Modèle Complet (Pour le RAG)
+  const handleLoadModel = async () => {
     try {
-      await txRef.current.commit();
-      addLog(`✅ Transaction Committed!`);
-      txRef.current.rollback();
-      updatePending();
-      await refreshItems();
-    } catch (e: any) {
-      addLog(`❌ Transaction Failed: ${e}`);
-    }
-  }
-
-  // Nouvelle version utilisant le ModelService
-  const testLoad = async () => {
-    try {
-      addLog("⏳ Chargement du modèle complet (Rust Thread)...");
-      
-      // Appel du nouveau service
+      addLog('⏳ Chargement du modèle complet pour le RAG...');
       const model = await modelService.loadProjectModel('un2', '_system');
-      
-      // Mise à jour du store global
       setProject(model);
-      
-      addLog(`✅ Modèle chargé !`);
-      addLog(`   - OA Actors: ${model.oa.actors.length}`);
-      addLog(`   - SA Functions: ${model.sa.functions.length}`);
-      addLog(`   - Total Elements: ${model.meta.elementCount}`);
-      
+      addLog(`✅ Modèle chargé en mémoire ! (Prêt pour les questions IA)`);
     } catch (e: any) {
-      addLog(`❌ Erreur chargement: ${e}`);
+      addLog(`❌ Erreur chargement modèle: ${e}`);
     }
-  }
-
-  const renderList = (data: any[], actions: boolean) => (
-    <div style={{flex: 1, overflowY: 'auto', paddingTop: 10}}>
-       {data.map(item => (
-         <div key={item.id} style={{background: '#1f2937', marginBottom: 8, padding: 10, borderRadius: 6, display: 'flex', justifyContent: 'space-between'}}>
-            <div>
-              <div style={{color: '#fff'}}>{item.name}</div>
-              <div style={{fontSize: '0.8em', color: '#9ca3af'}}>{item.id}</div>
-            </div>
-            {actions && (
-              <div style={{display: 'flex', gap: 5}}>
-                <button onClick={() => stageUpdate(item)} style={{color: '#60a5fa', background: 'none', border: '1px solid #60a5fa', borderRadius: 4, cursor: 'pointer'}}>Edit</button>
-                <button onClick={() => stageDelete(item.id)} style={{color: '#f87171', background: 'none', border: '1px solid #f87171', borderRadius: 4, cursor: 'pointer'}}>Del</button>
-              </div>
-            )}
-         </div>
-       ))}
-    </div>
-  );
+  };
 
   return (
-    <div style={{ padding: 20, background: '#111827', borderRadius: 8, border: '1px solid #374151', height: '600px', display: 'flex', flexDirection: 'column' }}>
-      <div style={{display:'flex', justifyContent:'space-between', marginBottom: 15}}>
-        <h3 style={{color:'white', margin:0}}>JSON-DB Tester</h3>
-        <div style={{display:'flex', gap: 10}}>
-          <button onClick={testLoad} style={{background:'#4f46e5', color:'white', border:'none', padding:'5px 10px', borderRadius:4, cursor:'pointer'}}>📂 Charger Modèle</button>
-          <div style={{display:'flex', background: '#1f2937', borderRadius: 4}}>
-             <button onClick={() => setActiveTab('write')} style={{background: activeTab==='write'?'#374151':'transparent', color: 'white', border:'none', padding:'5px 10px', cursor:'pointer'}}>Transactions</button>
-             <button onClick={() => setActiveTab('search')} style={{background: activeTab==='search'?'#374151':'transparent', color: 'white', border:'none', padding:'5px 10px', cursor:'pointer'}}>Recherche</button>
-          </div>
+    <div
+      style={{
+        padding: 20,
+        background: '#111827',
+        borderRadius: 8,
+        border: '1px solid #374151',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          marginBottom: 15,
+          alignItems: 'center',
+        }}
+      >
+        <h3 style={{ color: 'white', margin: 0 }}>Admin DB</h3>
+        <button
+          onClick={handleLoadModel}
+          style={{
+            background: '#4f46e5',
+            color: 'white',
+            border: 'none',
+            padding: '6px 12px',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: '0.9em',
+          }}
+        >
+          🔄 Recharger Modèle (RAG)
+        </button>
+      </div>
+
+      {/* Controls Collection */}
+      <div style={{ background: '#1f2937', padding: 10, borderRadius: 8, marginBottom: 15 }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+          <input
+            value={targetCollection}
+            onChange={(e) => setTargetCollection(e.target.value)}
+            placeholder="Nom collection (ex: actors)"
+            style={{
+              flex: 1,
+              padding: 8,
+              borderRadius: 4,
+              border: '1px solid #374151',
+              background: '#111827',
+              color: 'white',
+            }}
+          />
+          <button
+            onClick={handleCreateCollection}
+            style={{
+              background: '#10b981',
+              color: 'white',
+              border: 'none',
+              padding: '0 15px',
+              borderRadius: 4,
+              cursor: 'pointer',
+            }}
+          >
+            Créer / Ouvrir
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 5 }}>
+          <button
+            onClick={() => setActiveTab('write')}
+            style={{
+              flex: 1,
+              padding: 6,
+              borderRadius: 4,
+              border: 'none',
+              cursor: 'pointer',
+              background: activeTab === 'write' ? '#374151' : 'transparent',
+              color: activeTab === 'write' ? 'white' : '#9ca3af',
+            }}
+          >
+            Édition
+          </button>
+          <button
+            onClick={() => setActiveTab('search')}
+            style={{
+              flex: 1,
+              padding: 6,
+              borderRadius: 4,
+              border: 'none',
+              cursor: 'pointer',
+              background: activeTab === 'search' ? '#374151' : 'transparent',
+              color: activeTab === 'search' ? 'white' : '#9ca3af',
+            }}
+          >
+            Recherche
+          </button>
         </div>
       </div>
 
-      <div style={{display: 'grid', gridTemplateColumns: '300px 1fr', gap: 20, flex: 1, overflow: 'hidden'}}>
-        <div style={{display:'flex', flexDirection:'column', gap: 10}}>
-           <div style={{background: '#1f2937', padding: 10, borderRadius: 8}}>
-              <Button onClick={stageInsert} style={{width: '100%', marginBottom: 5}}>+ Nouveau</Button>
-              <div style={{display: 'flex', gap: 5}}>
-                <Button onClick={handleCommit} disabled={pendingOps.length===0} style={{flex:1, background: '#10b981'}}>Commit</Button>
-                <Button onClick={() => { txRef.current.rollback(); updatePending(); }} disabled={pendingOps.length===0} variant="ghost" style={{flex:1, color: '#ef4444'}}>Clear</Button>
-              </div>
-           </div>
-           <div style={{flex: 1, background: '#000', padding: 10, overflowY: 'auto', color: '#4ade80', fontSize: '0.8em', borderRadius: 8}}>
-              {pendingOps.map((op, i) => (
-                  <div key={i} style={{borderLeft: `3px solid ${OP_STYLES[op.type]?.color || '#fff'}`, paddingLeft: 5, marginBottom: 2}}>
-                      {op.type}
-                  </div>
-              ))}
-              {logs.map((l, i) => <div key={i}>{l}</div>)}
-           </div>
-        </div>
+      {/* Main Content */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {activeTab === 'write' && (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 10 }}>
+            {/* Zone d'insertion JSON */}
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <textarea
+                value={jsonInput}
+                onChange={(e) => setJsonInput(e.target.value)}
+                style={{
+                  flex: 1,
+                  background: '#000',
+                  color: '#a5f3fc',
+                  fontFamily: 'monospace',
+                  padding: 10,
+                  borderRadius: 6,
+                  border: '1px solid #374151',
+                  resize: 'none',
+                }}
+              />
+              <button
+                onClick={handleInsertJson}
+                style={{
+                  marginTop: 8,
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                }}
+              >
+                Insérer Document
+              </button>
+            </div>
 
-        <div style={{display:'flex', flexDirection:'column', height: '100%'}}>
-           {activeTab === 'write' ? renderList(items, true) : (
-             <>
-               <InputBar value={searchQuery} onChange={setSearchQuery} onSend={handleSearch} placeholder="Rechercher..." />
-               <div style={{marginTop: 5, color: '#10b981', fontSize: '0.8em', textAlign: 'right'}}>{searchStats}</div>
-               {renderList(searchResults, false)}
-             </>
-           )}
-        </div>
+            {/* Logs */}
+            <div
+              style={{
+                height: '150px',
+                background: '#000',
+                padding: 10,
+                overflowY: 'auto',
+                color: '#4ade80',
+                fontSize: '0.75em',
+                borderRadius: 8,
+                fontFamily: 'monospace',
+              }}
+            >
+              {logs.map((l, i) => (
+                <div key={i}>{l}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'search' && (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <InputBar
+              value={searchQuery}
+              onChange={setSearchQuery}
+              onSend={handleSearch}
+              placeholder={`Rechercher dans ${targetCollection}...`}
+            />
+            <div
+              style={{
+                marginTop: 5,
+                color: '#10b981',
+                fontSize: '0.8em',
+                textAlign: 'right',
+                minHeight: '20px',
+              }}
+            >
+              {searchStats}
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', marginTop: 10 }}>
+              {(searchResults.length > 0 ? searchResults : items).map((item: any) => (
+                <div
+                  key={item.id}
+                  style={{ background: '#1f2937', marginBottom: 8, padding: 10, borderRadius: 6 }}
+                >
+                  <div style={{ color: '#fff', fontWeight: 'bold' }}>{item.name || 'Sans nom'}</div>
+                  <div style={{ fontSize: '0.8em', color: '#9ca3af', marginTop: 4 }}>
+                    {item.description}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '0.7em',
+                      color: '#6b7280',
+                      marginTop: 4,
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    ID: {item.id}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

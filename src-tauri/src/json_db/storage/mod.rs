@@ -1,3 +1,5 @@
+// FICHIER : src-tauri/src/json_db/storage/mod.rs
+
 pub mod cache;
 pub mod file_storage;
 
@@ -18,7 +20,6 @@ impl JsonDbConfig {
         Self { data_root }
     }
 
-    /// Constructeur utilitaire pour les chaînes (CLI/Tests)
     pub fn from(path_str: String) -> Result<Self, String> {
         Ok(Self {
             data_root: PathBuf::from(path_str),
@@ -30,11 +31,14 @@ impl JsonDbConfig {
     }
 
     pub fn db_collection_path(&self, space: &str, db: &str, collection: &str) -> PathBuf {
-        self.db_root(space, db).join(collection)
+        // CORRECTION PRÉCÉDENTE MAINTENUE : Ajout de "collections"
+        self.db_root(space, db).join("collections").join(collection)
     }
 
-    pub fn db_schemas_root(&self, space: &str, db: &str) -> PathBuf {
-        self.db_root(space, db).join("_system").join("schemas")
+    pub fn db_schemas_root(&self, space: &str, _db: &str) -> PathBuf {
+        // CORRECTION : Centralisation absolue dans _system
+        // On ignore l'argument `_db` pour forcer le chemin vers la base système
+        self.db_root(space, "_system").join("schemas")
     }
 }
 
@@ -54,9 +58,6 @@ impl StorageEngine {
         }
     }
 
-    // --- Méthodes déléguées vers file_storage ---
-    // Ces méthodes permettent au CollectionsManager d'appeler self.storage.write_document(...)
-
     pub fn write_document(
         &self,
         space: &str,
@@ -65,7 +66,10 @@ impl StorageEngine {
         id: &str,
         doc: &Value,
     ) -> Result<()> {
-        file_storage::write_document(&self.config, space, db, collection, id, doc)
+        file_storage::write_document(&self.config, space, db, collection, id, doc)?;
+        let cache_key = format!("{}/{}/{}/{}", space, db, collection, id);
+        self.cache.put(cache_key, doc.clone());
+        Ok(())
     }
 
     pub fn read_document(
@@ -75,12 +79,21 @@ impl StorageEngine {
         collection: &str,
         id: &str,
     ) -> Result<Option<Value>> {
-        // TODO: Ajouter la logique de cache ici (Get from Cache -> If None -> Read FS -> Put Cache)
-        file_storage::read_document(&self.config, space, db, collection, id)
+        let cache_key = format!("{}/{}/{}/{}", space, db, collection, id);
+        if let Some(doc) = self.cache.get(&cache_key) {
+            return Ok(Some(doc));
+        }
+        let doc_opt = file_storage::read_document(&self.config, space, db, collection, id)?;
+        if let Some(doc) = &doc_opt {
+            self.cache.put(cache_key, doc.clone());
+        }
+        Ok(doc_opt)
     }
 
     pub fn delete_document(&self, space: &str, db: &str, collection: &str, id: &str) -> Result<()> {
-        // TODO: Invalider le cache ici
-        file_storage::delete_document(&self.config, space, db, collection, id)
+        file_storage::delete_document(&self.config, space, db, collection, id)?;
+        let cache_key = format!("{}/{}/{}/{}", space, db, collection, id);
+        self.cache.remove(&cache_key);
+        Ok(())
     }
 }

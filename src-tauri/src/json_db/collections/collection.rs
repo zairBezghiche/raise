@@ -6,12 +6,14 @@ use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 
+// On utilise atomic_write depuis file_storage
 use crate::json_db::storage::file_storage::atomic_write;
 use crate::json_db::storage::JsonDbConfig;
 
 /// Racine des collections : {db_root}/collections/{collection}
 pub fn collection_root(cfg: &JsonDbConfig, space: &str, db: &str, collection: &str) -> PathBuf {
-    cfg.db_root(space, db).join("collections").join(collection)
+    // CORRECTION : On utilise la nouvelle méthode db_collection_path qui est désormais correcte
+    cfg.db_collection_path(space, db, collection)
 }
 
 /// Fichier d’un document : {collection_root}/{id}.json
@@ -27,7 +29,9 @@ pub fn create_collection_if_missing(
     collection: &str,
 ) -> Result<()> {
     let root = collection_root(cfg, space, db, collection);
-    fs::create_dir_all(&root).with_context(|| format!("create_dir_all {}", root.display()))?;
+    if !root.exists() {
+        fs::create_dir_all(&root).with_context(|| format!("create_dir_all {}", root.display()))?;
+    }
     Ok(())
 }
 
@@ -49,7 +53,7 @@ pub fn read_document(
     Ok(doc)
 }
 
-// --- FONCTIONS TRANSACTION MANAGER ---
+// --- FONCTIONS CRUD ---
 
 pub fn create_document(
     cfg: &JsonDbConfig,
@@ -120,8 +124,11 @@ pub fn list_document_ids(
         let e = e?;
         let p = e.path();
         if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("json") {
+            // On ignore les fichiers spéciaux comme _meta.json
             if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                out.push(stem.to_string());
+                if !stem.starts_with('_') {
+                    out.push(stem.to_string());
+                }
             }
         }
     }
@@ -146,6 +153,7 @@ pub fn list_documents(
 }
 
 pub fn list_collection_names_fs(cfg: &JsonDbConfig, space: &str, db: &str) -> Result<Vec<String>> {
+    // On cherche dans db_root/collections/
     let root = cfg.db_root(space, db).join("collections");
     let mut out = Vec::new();
     if !root.exists() {
