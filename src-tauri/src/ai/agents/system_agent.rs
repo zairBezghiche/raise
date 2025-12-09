@@ -225,7 +225,7 @@ impl Agent for SystemAgent {
                         {
                             list.push(link_obj);
                         } else {
-                            return Ok(Some(format!("ℹ️ Le lien existe déjà.")));
+                            return Ok(Some("ℹ️ Le lien existe déjà.".to_string()));
                         }
                     }
                 }

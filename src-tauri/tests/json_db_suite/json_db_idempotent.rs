@@ -1,6 +1,6 @@
 // FICHIER : src-tauri/tests/json_db_suite/json_db_idempotent.rs
 
-use crate::common::{init_test_env, TEST_DB, TEST_SPACE};
+use crate::{init_test_env, TEST_DB, TEST_SPACE};
 use genaptitude::json_db::storage::file_storage::{create_db, drop_db, open_db, DropMode};
 
 #[test]

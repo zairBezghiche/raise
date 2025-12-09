@@ -6,6 +6,7 @@ use super::{driver, paths, IndexDefinition};
 use crate::json_db::storage::JsonDbConfig;
 
 /// Met à jour l'index B-Tree (wrapper vers driver générique)
+#[allow(clippy::too_many_arguments)]
 pub fn update_btree_index(
     cfg: &JsonDbConfig,
     space: &str,

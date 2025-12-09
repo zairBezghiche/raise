@@ -1,3 +1,5 @@
+// FICHIER : src-tauri/src/ai/context/retriever.rs
+
 use crate::ai::nlp::tokenizers;
 use crate::model_engine::types::{ArcadiaElement, ProjectModel};
 
@@ -41,6 +43,19 @@ impl SimpleRetriever {
             &keywords,
             &mut found_elements,
         );
+        // Ajout Data Layer
+        self.scan_layer(
+            "DATA:Class",
+            &self.model.data.classes,
+            &keywords,
+            &mut found_elements,
+        );
+        self.scan_layer(
+            "DATA:Item",
+            &self.model.data.exchange_items,
+            &keywords,
+            &mut found_elements,
+        );
 
         if found_elements.is_empty() {
             return "Aucun élément spécifique du modèle n'a été trouvé.".to_string();
@@ -64,7 +79,10 @@ impl SimpleRetriever {
         results: &mut Vec<(String, String, String)>,
     ) {
         for el in elements {
-            let name_lower = el.name.to_lowercase();
+            // CORRECTION 1 : On récupère juste la chaîne en minuscule
+            // On utilise .as_str() car el.name est un NameType
+            let name_lower = el.name.as_str().to_lowercase();
+
             let desc = el
                 .properties
                 .get("description")
@@ -80,7 +98,8 @@ impl SimpleRetriever {
             let ask_all = keywords.contains(&"liste") || keywords.contains(&"tous");
 
             if matches || ask_all {
-                results.push((kind_label.to_string(), el.name.clone(), desc));
+                // CORRECTION 2 : Conversion explicite de NameType en String pour l'affichage
+                results.push((kind_label.to_string(), el.name.as_str().to_string(), desc));
             }
         }
     }

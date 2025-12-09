@@ -6,6 +6,7 @@ use super::{driver, paths, IndexDefinition};
 use crate::json_db::storage::JsonDbConfig;
 
 /// Met à jour l'index de hachage (wrapper vers driver générique)
+#[allow(clippy::too_many_arguments)]
 pub fn update_hash_index(
     cfg: &JsonDbConfig,
     space: &str,

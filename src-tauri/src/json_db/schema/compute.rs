@@ -1,3 +1,5 @@
+// FICHIER : src-tauri/src/json_db/schema/compute.rs
+
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -8,7 +10,7 @@ use uuid::Uuid;
 use super::registry::SchemaRegistry;
 
 thread_local! {
-    static MAX_PASSES: Cell<usize> = Cell::new(4);
+    static MAX_PASSES: Cell<usize> = const { Cell::new(4) };
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -24,7 +26,6 @@ enum UpdateMode {
     IfNull,
 }
 
-/// Mode de résolution des pointeurs
 #[derive(Copy, Clone, PartialEq, Debug)]
 enum Scope {
     Root,
@@ -91,7 +92,15 @@ fn apply_xc_rec(
     path: &mut Vec<String>,
     changed: &mut bool,
 ) -> Result<()> {
-    // 1. GESTION DES RÉFÉRENCES
+    // Priorité aux Defaults : On applique d'abord les valeurs par défaut
+    if node.is_null() {
+        if let Some(default_val) = schema.get("default") {
+            *node = default_val.clone();
+            *changed = true;
+        }
+    }
+
+    // 1. GESTION DES RÉFÉRENCES (AVEC DEBUGGING)
     if let Some(ref_str) = schema.get("$ref").and_then(|v| v.as_str()) {
         let (file_uri, fragment) = if ref_str.starts_with('#') {
             (current_uri.to_string(), Some(ref_str.to_string()))
@@ -110,6 +119,7 @@ fn apply_xc_rec(
             } else {
                 target_schema_root
             };
+
             return apply_xc_rec(
                 snapshot_root,
                 node,
@@ -120,16 +130,43 @@ fn apply_xc_rec(
                 changed,
             );
         } else {
+            // --- BLOC DE DIAGNOSTIC AJOUTÉ ---
+            #[cfg(test)] // Ce bloc ne s'active que lors des tests (cargo test)
+            {
+                // On affiche ce message seulement si on cherche un schéma "base.schema.json"
+                // pour éviter de spammer les logs pour d'autres refs.
+                if ref_str.contains("base.schema.json") {
+                    println!("⚠️ [x_compute] Échec résolution $ref critique !");
+                    println!("   Source URI   : {}", current_uri);
+                    println!("   Ref brute    : {}", ref_str);
+                    println!("   URI Calculée : {}", file_uri);
+
+                    // On liste les clés proches dans le registre pour comprendre l'écart
+                    // (Nécessite la méthode list_uris ajoutée précédemment dans Registry)
+                    let available_keys = registry.list_uris();
+                    println!("   Registre ({} clés) :", available_keys.len());
+
+                    let mut found_candidate = false;
+                    for k in available_keys {
+                        if k.contains("base.schema.json") {
+                            println!("   - Candidat trouvé : {}", k);
+                            found_candidate = true;
+                        }
+                    }
+                    if !found_candidate {
+                        println!(
+                            "   - AUCUN candidat trouvé pour base.schema.json (Fichier manquant ?)"
+                        );
+                    }
+                }
+            }
             return Ok(());
         }
     }
 
-    // 2. INITIALISATION STRUCTURELLE & DEFAULTS
+    // 2. INITIALISATION STRUCTURELLE
     if node.is_null() {
-        if let Some(default_val) = schema.get("default") {
-            *node = default_val.clone();
-            *changed = true;
-        } else if let Some(t) = schema.get("type").and_then(|t| t.as_str()) {
+        if let Some(t) = schema.get("type").and_then(|t| t.as_str()) {
             if t == "object" {
                 *node = Value::Object(serde_json::Map::new());
                 *changed = true;
@@ -151,12 +188,11 @@ fn apply_xc_rec(
             for (key, sub_schema) in props {
                 let mut created_temp = false;
 
-                if !obj.contains_key(key) {
-                    if needs_computation(sub_schema) {
+                if !obj.contains_key(key)
+                    && needs_computation(sub_schema) {
                         obj.insert(key.clone(), Value::Null);
                         created_temp = true;
                     }
-                }
 
                 if let Some(sub_node) = obj.get_mut(key) {
                     path.push(key.clone());
@@ -240,7 +276,6 @@ fn apply_rule_def(
         return Ok(());
     }
 
-    // Détermination du Scope
     let scope_str = rule.get("scope").and_then(|s| s.as_str()).unwrap_or("root");
     let scope = if scope_str == "self" {
         Scope::SelfRelative
@@ -248,10 +283,8 @@ fn apply_rule_def(
         Scope::Root
     };
 
-    // Construction du pointeur vers "self" (le parent du champ courant)
     let self_ptr = if !current_path.is_empty() {
         let parent_path = &current_path[..current_path.len() - 1];
-        // Convertir ["a", "b"] en "/a/b"
         if parent_path.is_empty() {
             "".to_string()
         } else {
@@ -269,9 +302,7 @@ fn apply_rule_def(
                     *changed = true;
                 }
             }
-            Err(_e) => {
-                // On ignore silencieusement les erreurs de calcul (ex: champ manquant temporaire)
-            }
+            Err(_e) => {}
         }
     }
     Ok(())
@@ -289,19 +320,16 @@ fn evaluate_plan(
         None => return Ok(plan.clone()),
     };
 
-    // Cas Pointeur
     if let Some(ptr) = obj.get("ptr").and_then(|v| v.as_str()) {
         return resolve_pointer(ptr, root, current_path, scope, self_ptr);
     }
 
-    // Cas Opération
     if let Some(op) = obj.get("op").and_then(|v| v.as_str()) {
         let args = obj.get("args").and_then(|v| v.as_array());
         let mut evaluated_args = Vec::new();
 
         if let Some(args_arr) = args {
             if op != "sum" {
-                // SUM gère ses propres args (definition de boucle)
                 for arg in args_arr {
                     evaluated_args.push(evaluate_plan(arg, root, current_path, scope, self_ptr)?);
                 }
@@ -309,33 +337,23 @@ fn evaluate_plan(
         }
 
         return match op {
-            // Générateurs
             "uuid_v4" => Ok(Value::String(Uuid::new_v4().to_string())),
             "now_utc" | "now_rfc3339" => Ok(Value::String(Utc::now().to_rfc3339())),
             "const" => Ok(obj.get("value").unwrap_or(&Value::Null).clone()),
-
-            // Maths
             "add" => op_math_reduce(&evaluated_args, |a, b| a + b),
             "sub" => op_math_reduce(&evaluated_args, |a, b| a - b),
             "mul" => op_math_reduce(&evaluated_args, |a, b| a * b),
             "div" => op_math_reduce(&evaluated_args, |a, b| if b != 0.0 { a / b } else { 0.0 }),
             "round" => op_round(&evaluated_args, obj),
-
-            // Agrégation
             "sum" => op_sum(obj, root, current_path, scope, self_ptr),
-
-            // Comparaisons
-            "eq" => Ok(Value::Bool(evaluated_args.get(0) == evaluated_args.get(1))),
-            "ne" => Ok(Value::Bool(evaluated_args.get(0) != evaluated_args.get(1))),
+            "eq" => Ok(Value::Bool(evaluated_args.first() == evaluated_args.get(1))),
+            "ne" => Ok(Value::Bool(evaluated_args.first() != evaluated_args.get(1))),
             "gt" => op_compare(&evaluated_args, |a, b| a > b),
             "gte" => op_compare(&evaluated_args, |a, b| a >= b),
             "lt" => op_compare(&evaluated_args, |a, b| a < b),
             "lte" | "le" => op_compare(&evaluated_args, |a, b| a <= b),
-
-            // Logique
             "not" => {
-                let val = evaluated_args
-                    .get(0)
+                let val = evaluated_args.first()
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 Ok(Value::Bool(!val))
@@ -348,15 +366,12 @@ fn evaluate_plan(
                 let res = evaluated_args.iter().any(|v| v.as_bool().unwrap_or(false));
                 Ok(Value::Bool(res))
             }
-
             _ => Err(anyhow!("Opération inconnue: {}", op)),
         };
     }
 
     Ok(Value::Object(obj.clone()))
 }
-
-// --- HELPERS OPÉRATIONS ---
 
 fn op_math_reduce<F>(args: &[Value], op: F) -> Result<Value>
 where
@@ -373,7 +388,7 @@ where
 }
 
 fn op_round(args: &[Value], config: &serde_json::Map<String, Value>) -> Result<Value> {
-    let val = args.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let val = args.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
     let scale = config.get("scale").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
     let multiplier = 10f64.powi(scale);
     let rounded = (val * multiplier).round() / multiplier;
@@ -401,9 +416,7 @@ fn op_sum(
 ) -> Result<Value> {
     let from_ptr = config.get("from").and_then(|v| v.as_str()).unwrap_or("");
     let field_path = config.get("path").and_then(|v| v.as_str()).unwrap_or("");
-
     let source_array = resolve_pointer(from_ptr, root, current_path, scope, self_ptr)?;
-
     let mut sum = 0.0;
     if let Some(arr) = source_array.as_array() {
         for item in arr {
@@ -418,8 +431,6 @@ fn op_sum(
     Ok(json!(sum))
 }
 
-// --- RÉSOLUTION DES POINTEURS ---
-
 fn resolve_pointer(
     ptr: &str,
     root: &Value,
@@ -427,15 +438,9 @@ fn resolve_pointer(
     scope: Scope,
     self_ptr: &str,
 ) -> Result<Value> {
-    // 1. Pointeurs Absolus (#/foo/bar)
     if ptr.starts_with("#/") {
         let raw_ptr = &ptr[1..];
-
-        // Si Scope::SelfRelative, on préfixe par le chemin du parent courant
         let final_ptr = if scope == Scope::SelfRelative {
-            // self_ptr est déjà formaté "/foo/bar" (ou vide si racine)
-            // raw_ptr est "/baz"
-            // Résultat: "/foo/bar/baz"
             if self_ptr.is_empty() {
                 raw_ptr.to_string()
             } else {
@@ -444,47 +449,35 @@ fn resolve_pointer(
         } else {
             raw_ptr.to_string()
         };
-
         return root
             .pointer(&final_ptr)
             .cloned()
             .ok_or_else(|| anyhow!("Pointeur introuvable: {}", final_ptr));
     }
-
-    // 2. Pointeurs Relatifs (#/../foo) - Toujours relatifs au nœud courant
     if ptr.starts_with("#/../") {
         let parts: Vec<&str> = ptr.split('/').collect();
         let mut effective_path = current_path.to_vec();
-
-        // parts[0]="#", parts[1]=".."
         let mut i = 1;
         while i < parts.len() && parts[i] == ".." {
             effective_path.pop();
             i += 1;
         }
-
         while i < parts.len() {
             effective_path.push(parts[i].to_string());
             i += 1;
         }
-
         let abs_ptr = if effective_path.is_empty() {
             "".to_string()
         } else {
             "/".to_string() + &effective_path.join("/")
         };
-
         return root
             .pointer(&abs_ptr)
             .cloned()
             .ok_or_else(|| anyhow!("Pointeur relatif introuvable: {}", abs_ptr));
     }
-
-    // Fallback littéral
     Ok(Value::String(ptr.to_string()))
 }
-
-// --- UTILITAIRES ---
 
 fn needs_computation(schema: &Value) -> bool {
     schema.get("x_compute").is_some()

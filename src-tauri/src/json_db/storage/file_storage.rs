@@ -2,9 +2,15 @@
 
 use crate::json_db::storage::JsonDbConfig;
 use anyhow::{Context, Result};
+use include_dir::{include_dir, Dir};
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+// --- EMBARQUEMENT DES SCHÉMAS DANS LA LIBRAIRIE ---
+// Le chemin est relatif au Cargo.toml de la LIBRAIRIE (src-tauri/Cargo.toml)
+// Donc on remonte d'un niveau pour trouver 'schemas/v1' à la racine du projet
+static DEFAULT_SCHEMAS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../schemas/v1");
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DropMode {
@@ -20,58 +26,33 @@ pub fn open_db(config: &JsonDbConfig, space: &str, db: &str) -> Result<()> {
     Ok(())
 }
 
+/// Crée l'arborescence physique ET déploie les schémas par défaut.
 pub fn create_db(config: &JsonDbConfig, space: &str, db: &str) -> Result<()> {
-    let db_path = config.db_root(space, db);
+    let db_root = config.db_root(space, db);
 
-    // 1. Création de la structure
-    if !db_path.exists() {
-        fs::create_dir_all(&db_path)?;
+    // 1. Création des dossiers de base
+    if !db_root.exists() {
+        fs::create_dir_all(&db_root).context("Failed to create DB root directory")?;
     }
 
-    // 2. AUTO-BOOTSTRAP : Si c'est la base système, on assure son intégrité
-    if db == "_system" {
-        bootstrap_system_db(config, space, db)?;
-    }
-
-    Ok(())
-}
-
-/// Fonction interne pour garantir l'intégrité de la base système
-fn bootstrap_system_db(config: &JsonDbConfig, space: &str, db: &str) -> Result<()> {
+    // 2. Déploiement automatique des schémas embarqués
+    // On ne le fait que pour la base système ou si le dossier n'existe pas
     let schemas_dest = config.db_schemas_root(space, db).join("v1");
 
     if !schemas_dest.exists() {
-        // 1. Création du dossier destination
-        fs::create_dir_all(&schemas_dest)?;
-
-        let candidates = vec![
-            PathBuf::from("schemas/v1"),       // Run root
-            PathBuf::from("../schemas/v1"),    // Run src-tauri
-            PathBuf::from("../../schemas/v1"), // Run tools
-            // AJOUT DE SÉCURITÉ : Chemin absolu basé sur une hypothèse courante ou variable d'env
-            PathBuf::from("/home/zair/genaptitude/schemas/v1"),
-        ];
-
-        // AJOUT DE LOG DE DEBUG
+        // C'est ici que la magie opère : extraction depuis la mémoire du binaire vers le disque
         println!(
-            "🔍 [JSON-DB] Bootstrap: Recherche des schémas dans : {:?}",
-            candidates
+            "📦 Déploiement des schémas standards dans {:?}",
+            schemas_dest
         );
-
-        if let Some(source) = candidates.iter().find(|p| p.exists()) {
-            println!(
-                "✅ [JSON-DB] Schémas trouvés dans {:?} -> Copie en cours...",
-                source
-            );
-            copy_dir_recursive(source, &schemas_dest)?;
-        } else {
-            eprintln!("❌ [JSON-DB] CRITIQUE : Aucun dossier de schémas source trouvé !");
-        }
+        fs::create_dir_all(&schemas_dest)?;
+        DEFAULT_SCHEMAS
+            .extract(&schemas_dest)
+            .context("Failed to extract embedded schemas")?;
     }
+
     Ok(())
 }
-
-// --- RESTE DU FICHIER INCHANGÉ (CRUD) ---
 
 pub fn drop_db(config: &JsonDbConfig, space: &str, db: &str, mode: DropMode) -> Result<()> {
     let db_path = config.db_root(space, db);
@@ -107,10 +88,8 @@ pub fn write_document(
     if !col_path.exists() {
         fs::create_dir_all(&col_path)?;
     }
-
     let file_path = col_path.join(format!("{}.json", id));
     let content = serde_json::to_string_pretty(doc)?;
-
     atomic_write(file_path, content)?;
     Ok(())
 }
@@ -125,11 +104,9 @@ pub fn read_document(
     let file_path = config
         .db_collection_path(space, db, collection)
         .join(format!("{}.json", id));
-
     if !file_path.exists() {
         return Ok(None);
     }
-
     let content = fs::read_to_string(file_path)?;
     let doc = serde_json::from_str(&content)?;
     Ok(Some(doc))
@@ -145,7 +122,6 @@ pub fn delete_document(
     let file_path = config
         .db_collection_path(space, db, collection)
         .join(format!("{}.json", id));
-
     if file_path.exists() {
         fs::remove_file(file_path)?;
     }
@@ -159,38 +135,12 @@ pub fn atomic_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, content: C) -> Resu
             fs::create_dir_all(parent)?;
         }
     }
-
     let temp_path = path.with_extension("tmp");
-    fs::write(&temp_path, content)
-        .with_context(|| format!("Failed to write temp file {:?}", temp_path))?;
-    fs::rename(&temp_path, path)
-        .with_context(|| format!("Failed to rename {:?} to {:?}", temp_path, path))?;
+    fs::write(&temp_path, content)?;
+    fs::rename(&temp_path, path)?;
     Ok(())
 }
 
 pub fn atomic_write_binary<P: AsRef<Path>>(path: P, content: &[u8]) -> Result<()> {
     atomic_write(path, content)
-}
-
-/// Helper récursif pour copier les dossiers
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if !dst.exists() {
-        fs::create_dir_all(dst)?;
-    }
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if ty.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            // On ne copie que les .json
-            if src_path.extension().map_or(false, |e| e == "json") {
-                fs::copy(&src_path, &dst_path)?;
-            }
-        }
-    }
-    Ok(())
 }

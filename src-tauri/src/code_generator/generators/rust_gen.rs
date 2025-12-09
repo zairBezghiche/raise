@@ -8,6 +8,12 @@ pub struct RustGenerator {
     tera: Tera,
 }
 
+impl Default for RustGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RustGenerator {
     pub fn new() -> Self {
         let mut tera = Tera::default();
@@ -83,7 +89,7 @@ impl LanguageGenerator for RustGenerator {
         // ex: "Superviseur de Vol" -> "SuperviseurDeVol"
         let class_name = name
             .split_whitespace()
-            .map(|s| s_upper_first(s))
+            .map(s_upper_first)
             .collect::<Vec<String>>()
             .join("");
 

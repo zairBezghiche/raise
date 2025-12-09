@@ -1,3 +1,4 @@
+// FICHIER : src/components/JsonDbTester.tsx
 import { useState, useEffect } from 'react';
 import { collectionService } from '@/services/json-db/collection-service';
 import { createQuery } from '@/services/json-db/query-service';
@@ -8,13 +9,13 @@ import { InputBar } from '@/components/ai-chat/InputBar';
 export function JsonDbTester() {
   // --- État UI ---
   const [logs, setLogs] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'write' | 'search'>('write');
+  const [activeTab, setActiveTab] = useState<'write' | 'search' | 'admin'>('admin'); // Ajout tab Admin
 
   // --- État Données ---
-  const [targetCollection, setTargetCollection] = useState('actors'); // Par défaut 'actors' pour le test RAG
+  const [targetCollection, setTargetCollection] = useState('actors');
   const [items, setItems] = useState<any[]>([]);
 
-  // --- État Insertion Manuelle (Pour le test RAG) ---
+  // --- État Insertion Manuelle ---
   const [jsonInput, setJsonInput] = useState<string>(
     JSON.stringify(
       {
@@ -40,54 +41,75 @@ export function JsonDbTester() {
   const addLog = (msg: string) =>
     setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
-  // Chargement initial
   useEffect(() => {
     refreshItems();
   }, [targetCollection]);
 
-  // 1. Création de collection
-  const handleCreateCollection = async () => {
+  // --- ACTIONS ADMIN (NOUVEAU) ---
+  const handleInitDb = async () => {
     try {
-      await collectionService.createCollection(targetCollection);
-      addLog(`✅ Collection '${targetCollection}' créée (ou déjà existante).`);
-      await refreshItems();
+      await collectionService.createDb();
+      addLog('✅ Base de données initialisée (un2/_system).');
     } catch (e: any) {
-      addLog(`❌ Erreur création: ${e}`);
+      addLog(`❌ Erreur Init DB: ${e}`);
     }
   };
 
-  // 2. Insertion de document JSON brut
+  const handleDropDb = async () => {
+    if (!confirm('Êtes-vous sûr de vouloir tout supprimer ?')) return;
+    try {
+      await collectionService.dropDb();
+      addLog('🗑️ Base de données supprimée.');
+      setItems([]);
+    } catch (e: any) {
+      addLog(`❌ Erreur Drop DB: ${e}`);
+    }
+  };
+
+  const handleCreateIndex = async () => {
+    try {
+      await collectionService.createIndex(targetCollection, 'name', 'hash'); // Index sur 'name' par défaut
+      addLog(`✅ Index Hash créé sur ${targetCollection}.name`);
+    } catch (e: any) {
+      addLog(`❌ Erreur Index: ${e}`);
+    }
+  };
+
+  // --- ACTIONS COLLECTION ---
+  const handleCreateCollection = async () => {
+    try {
+      await collectionService.createCollection(targetCollection);
+      addLog(`✅ Collection '${targetCollection}' prête.`);
+      await refreshItems();
+    } catch (e: any) {
+      addLog(`❌ Erreur création collection: ${e}`);
+    }
+  };
+
   const handleInsertJson = async () => {
     if (!targetCollection.trim()) {
-      addLog('❌ Erreur: Le nom de la collection est vide !');
+      addLog('❌ Erreur: Nom de collection vide !');
       return;
     }
     try {
       const doc = JSON.parse(jsonInput);
       const saved = await collectionService.insertDocument(targetCollection, doc);
-      addLog(`✅ Document inséré dans '${targetCollection}' (ID: ${saved.id})`);
+      addLog(`✅ Document inséré (ID: ${saved.id})`);
       await refreshItems();
     } catch (e: any) {
-      addLog(`❌ Erreur insertion JSON: ${e}`);
+      addLog(`❌ Erreur insertion: ${e}`);
     }
   };
 
-  // 3. Rafraîchissement liste
   const refreshItems = async () => {
     try {
       const docs = await collectionService.listAll(targetCollection);
-      if (Array.isArray(docs)) {
-        setItems(docs.reverse());
-      } else {
-        setItems([]);
-      }
+      setItems(Array.isArray(docs) ? docs.reverse() : []);
     } catch (e: any) {
-      // On ignore l'erreur si la collection n'existe pas encore
-      setItems([]);
+      setItems([]); // Collection n'existe pas encore
     }
   };
 
-  // 4. Recherche
   const handleSearch = async (text: string) => {
     if (!text.trim()) {
       setSearchResults([]);
@@ -95,6 +117,7 @@ export function JsonDbTester() {
     }
     try {
       const start = performance.now();
+      // Recherche textuelle simple sur 'name'
       const query = createQuery(targetCollection).where('name', 'Contains', text).limit(20).build();
 
       const results = await collectionService.queryDocuments(targetCollection, query);
@@ -102,21 +125,20 @@ export function JsonDbTester() {
 
       setSearchResults(results);
       setSearchStats(`${results.length} résultat(s) en ${duration}ms`);
-      addLog(`🔍 Recherche "${text}" sur ${targetCollection}`);
+      addLog(`🔍 Recherche "${text}" terminée.`);
     } catch (e: any) {
       addLog(`❌ Erreur recherche: ${e}`);
     }
   };
 
-  // 5. Chargement Modèle Complet (Pour le RAG)
   const handleLoadModel = async () => {
     try {
-      addLog('⏳ Chargement du modèle complet pour le RAG...');
+      addLog('⏳ Chargement du modèle RAG...');
       const model = await modelService.loadProjectModel('un2', '_system');
       setProject(model);
-      addLog(`✅ Modèle chargé en mémoire ! (Prêt pour les questions IA)`);
+      addLog(`✅ Modèle chargé !`);
     } catch (e: any) {
-      addLog(`❌ Erreur chargement modèle: ${e}`);
+      addLog(`❌ Erreur modèle: ${e}`);
     }
   };
 
@@ -133,144 +155,137 @@ export function JsonDbTester() {
         overflow: 'hidden',
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          marginBottom: 15,
-          alignItems: 'center',
-        }}
-      >
-        <h3 style={{ color: 'white', margin: 0 }}>Admin DB</h3>
-        <button
-          onClick={handleLoadModel}
+      {/* Header & Tabs */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 15 }}>
+        <h3 style={{ color: 'white', margin: 0 }}>JSON-DB Explorer</h3>
+        <div style={{ display: 'flex', gap: 5 }}>
+          {['admin', 'write', 'search'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as any)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 4,
+                border: 'none',
+                cursor: 'pointer',
+                background: activeTab === tab ? '#4f46e5' : '#374151',
+                color: 'white',
+                textTransform: 'capitalize',
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Barre de collection (Toujours visible) */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 15 }}>
+        <input
+          value={targetCollection}
+          onChange={(e) => setTargetCollection(e.target.value)}
+          placeholder="Collection (ex: actors)"
           style={{
-            background: '#4f46e5',
+            flex: 1,
+            padding: 8,
+            borderRadius: 4,
+            border: '1px solid #374151',
+            background: '#1f2937',
+            color: 'white',
+          }}
+        />
+        <button
+          onClick={handleCreateCollection}
+          style={{
+            background: '#10b981',
             color: 'white',
             border: 'none',
-            padding: '6px 12px',
             borderRadius: 4,
+            padding: '0 15px',
             cursor: 'pointer',
-            fontSize: '0.9em',
           }}
         >
-          🔄 Recharger Modèle (RAG)
+          Ouvrir / Créer
         </button>
       </div>
 
-      {/* Controls Collection */}
-      <div style={{ background: '#1f2937', padding: 10, borderRadius: 8, marginBottom: 15 }}>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-          <input
-            value={targetCollection}
-            onChange={(e) => setTargetCollection(e.target.value)}
-            placeholder="Nom collection (ex: actors)"
-            style={{
-              flex: 1,
-              padding: 8,
-              borderRadius: 4,
-              border: '1px solid #374151',
-              background: '#111827',
-              color: 'white',
-            }}
-          />
-          <button
-            onClick={handleCreateCollection}
-            style={{
-              background: '#10b981',
-              color: 'white',
-              border: 'none',
-              padding: '0 15px',
-              borderRadius: 4,
-              cursor: 'pointer',
-            }}
-          >
-            Créer / Ouvrir
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', gap: 5 }}>
-          <button
-            onClick={() => setActiveTab('write')}
-            style={{
-              flex: 1,
-              padding: 6,
-              borderRadius: 4,
-              border: 'none',
-              cursor: 'pointer',
-              background: activeTab === 'write' ? '#374151' : 'transparent',
-              color: activeTab === 'write' ? 'white' : '#9ca3af',
-            }}
-          >
-            Édition
-          </button>
-          <button
-            onClick={() => setActiveTab('search')}
-            style={{
-              flex: 1,
-              padding: 6,
-              borderRadius: 4,
-              border: 'none',
-              cursor: 'pointer',
-              background: activeTab === 'search' ? '#374151' : 'transparent',
-              color: activeTab === 'search' ? 'white' : '#9ca3af',
-            }}
-          >
-            Recherche
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content */}
+      {/* CONTENU PRINCIPAL */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {activeTab === 'write' && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 10 }}>
-            {/* Zone d'insertion JSON */}
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-              <textarea
-                value={jsonInput}
-                onChange={(e) => setJsonInput(e.target.value)}
-                style={{
-                  flex: 1,
-                  background: '#000',
-                  color: '#a5f3fc',
-                  fontFamily: 'monospace',
-                  padding: 10,
-                  borderRadius: 6,
-                  border: '1px solid #374151',
-                  resize: 'none',
-                }}
-              />
+        {/* --- ONGLET ADMIN --- */}
+        {activeTab === 'admin' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <button
-                onClick={handleInsertJson}
+                onClick={handleInitDb}
                 style={{
-                  marginTop: 8,
-                  background: '#3b82f6',
+                  padding: 15,
+                  background: '#059669',
                   color: 'white',
                   border: 'none',
-                  padding: '8px',
-                  borderRadius: 4,
+                  borderRadius: 6,
                   cursor: 'pointer',
                 }}
               >
-                Insérer Document
+                🏗️ Initialiser DB
+              </button>
+              <button
+                onClick={handleDropDb}
+                style={{
+                  padding: 15,
+                  background: '#dc2626',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                💥 Supprimer DB
+              </button>
+              <button
+                onClick={handleCreateIndex}
+                style={{
+                  padding: 15,
+                  background: '#d97706',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                ⚡ Indexer 'name'
+              </button>
+              <button
+                onClick={handleLoadModel}
+                style={{
+                  padding: 15,
+                  background: '#2563eb',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                🧠 Charger Modèle (RAG)
               </button>
             </div>
 
-            {/* Logs */}
+            {/* Logs Console */}
             <div
               style={{
-                height: '150px',
+                flex: 1,
                 background: '#000',
                 padding: 10,
                 overflowY: 'auto',
                 color: '#4ade80',
-                fontSize: '0.75em',
-                borderRadius: 8,
+                fontSize: '0.8em',
                 fontFamily: 'monospace',
+                borderRadius: 6,
+                border: '1px solid #374151',
               }}
             >
+              {logs.length === 0 && (
+                <span style={{ color: '#6b7280' }}>En attente d'actions...</span>
+              )}
               {logs.map((l, i) => (
                 <div key={i}>{l}</div>
               ))}
@@ -278,6 +293,41 @@ export function JsonDbTester() {
           </div>
         )}
 
+        {/* --- ONGLET WRITE --- */}
+        {activeTab === 'write' && (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 10 }}>
+            <textarea
+              value={jsonInput}
+              onChange={(e) => setJsonInput(e.target.value)}
+              style={{
+                flex: 1,
+                background: '#000',
+                color: '#a5f3fc',
+                fontFamily: 'monospace',
+                padding: 10,
+                borderRadius: 6,
+                border: '1px solid #374151',
+                resize: 'none',
+              }}
+            />
+            <button
+              onClick={handleInsertJson}
+              style={{
+                background: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                padding: 12,
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              💾 Insérer Document
+            </button>
+          </div>
+        )}
+
+        {/* --- ONGLET SEARCH --- */}
         {activeTab === 'search' && (
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <InputBar
@@ -297,14 +347,21 @@ export function JsonDbTester() {
             >
               {searchStats}
             </div>
-
             <div style={{ flex: 1, overflowY: 'auto', marginTop: 10 }}>
               {(searchResults.length > 0 ? searchResults : items).map((item: any) => (
                 <div
                   key={item.id}
-                  style={{ background: '#1f2937', marginBottom: 8, padding: 10, borderRadius: 6 }}
+                  style={{
+                    background: '#1f2937',
+                    marginBottom: 8,
+                    padding: 10,
+                    borderRadius: 6,
+                    borderLeft: '3px solid #6366f1',
+                  }}
                 >
-                  <div style={{ color: '#fff', fontWeight: 'bold' }}>{item.name || 'Sans nom'}</div>
+                  <div style={{ color: '#fff', fontWeight: 'bold' }}>
+                    {item.name || item.title || 'Sans nom'}
+                  </div>
                   <div style={{ fontSize: '0.8em', color: '#9ca3af', marginTop: 4 }}>
                     {item.description}
                   </div>
@@ -312,7 +369,7 @@ export function JsonDbTester() {
                     style={{
                       fontSize: '0.7em',
                       color: '#6b7280',
-                      marginTop: 4,
+                      marginTop: 6,
                       fontFamily: 'monospace',
                     }}
                   >

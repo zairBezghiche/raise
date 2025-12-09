@@ -1,11 +1,15 @@
 // FICHIER : src-tauri/tests/code_gen_suite/mod.rs
 
 use genaptitude::ai::llm::client::LlmClient;
+use genaptitude::json_db::collections::manager::CollectionsManager; // Ajout
 use genaptitude::json_db::storage::{JsonDbConfig, StorageEngine};
-use serde_json::json;
 use std::env;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
+
+pub mod agent_tests;
+pub mod rust_tests;
 
 static INIT: Once = Once::new();
 
@@ -15,6 +19,7 @@ pub struct AiTestEnv {
     pub client: LlmClient,
     pub _space: String,
     pub _db: String,
+    // Garde le dossier temporaire en vie
     pub _tmp_dir: tempfile::TempDir,
 }
 
@@ -28,74 +33,45 @@ pub fn init_ai_test_env() -> AiTestEnv {
     });
 
     let tmp_dir = tempfile::tempdir().expect("create temp dir");
-    let config = JsonDbConfig::new(tmp_dir.path().to_path_buf());
+    let data_root = tmp_dir.path().to_path_buf();
+    let config = JsonDbConfig::new(data_root.clone());
 
     let space = "un2".to_string();
     let db = "_system".to_string();
 
-    // --- BOOTSTRAP DB ---
+    // 1. Structure de base
     let db_root = config.db_root(&space, &db);
     fs::create_dir_all(&db_root).expect("Failed to create db root");
 
-    let schemas_root = config.db_schemas_root(&space, &db).join("v1");
+    // 2. COPIE ROBUSTE DES SCHÉMAS
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let possible_paths = vec![
+        manifest_dir.join("../schemas/v1"),
+        manifest_dir.join("schemas/v1"),
+        PathBuf::from("schemas/v1"),
+    ];
 
-    // CORRECTION : Création de la structure attendue par le SystemAgent (arcadia/oa)
-    let oa_dir = schemas_root.join("arcadia").join("oa");
-    fs::create_dir_all(&oa_dir).expect("create arcadia/oa schema dir");
+    let src_schemas = possible_paths
+        .into_iter()
+        .find(|p| p.exists())
+        .expect("❌ FATAL: Impossible de trouver 'schemas/v1' pour code_gen_suite.");
 
-    fs::write(
-        oa_dir.join("actor.schema.json"),
-        json!({
-            "type": "object",
-            "properties": {
-                "id": { "type": "string" },
-                "handle": { "type": "string" },
-                "displayName": { "type": "string" },
-                "kind": { "type": "string" },
-                "description": { "type": "string" },
-                "@context": { "type": "object" },
-                "@type": { "type": "string" }
-            },
-            "additionalProperties": true
-        })
-        .to_string(),
-    )
-    .expect("write actor schema");
+    let dest_schemas_root = config.db_schemas_root(&space, &db).join("v1");
+    if !dest_schemas_root.exists() {
+        fs::create_dir_all(&dest_schemas_root).expect("create schemas dir");
+    }
 
-    // Schema Workunits (resté simple pour l'instant)
-    let wu_dir = schemas_root.join("workunits");
-    fs::create_dir_all(&wu_dir).expect("create workunits schema dir");
-    fs::write(
-        wu_dir.join("workunit.schema.json"),
-        json!({ "type": "object", "additionalProperties": true }).to_string(),
-    )
-    .expect("write workunit schema");
+    // On copie TOUT le dossier récursivement
+    copy_dir_recursive(&src_schemas, &dest_schemas_root).expect("copy schemas");
 
-    // Index Système (_system.json) mis à jour avec le bon chemin
-    let system_index = json!({
-        "space": space,
-        "database": db,
-        "collections": {
-            "actors": {
-                // CORRECTION : Chemin pointant vers arcadia/oa
-                "schema": format!("db://{}/{}/schemas/v1/arcadia/oa/actor.schema.json", space, db),
-                "items": []
-            },
-            "workunits": {
-                "schema": format!("db://{}/{}/schemas/v1/workunits/workunit.schema.json", space, db),
-                "items": []
-            }
-        }
-    });
-
-    fs::write(
-        db_root.join("_system.json"),
-        serde_json::to_string_pretty(&system_index).unwrap(),
-    )
-    .expect("write _system.json");
-
+    // 3. INITIALISATION PROPRE VIA LE MANAGER
     let storage = StorageEngine::new(config);
+    let mgr = CollectionsManager::new(&storage, &space, &db);
 
+    // Génère _system.json avec ID et Dates valides
+    mgr.init_db().expect("❌ init_db failed in code_gen_suite");
+
+    // --- CLIENT IA ---
     let gemini_key = env::var("GENAPTITUDE_GEMINI_KEY").unwrap_or_default();
     let model_name = env::var("GENAPTITUDE_MODEL_NAME").ok();
     let local_url =
@@ -104,10 +80,30 @@ pub fn init_ai_test_env() -> AiTestEnv {
     let client = LlmClient::new(&local_url, &gemini_key, model_name);
 
     AiTestEnv {
-        storage,
+        storage, // Note: storage a été déplacé dans mgr, on doit le cloner ou le reconstruire si nécessaire
+        // Ici on a consommé 'storage' dans 'mgr', mais 'mgr' ne le possède pas (il l'emprunte).
+        // Ah non, CollectionsManager prend une référence !
+        // Mais StorageEngine::new consomme 'config'.
+        // -> On va reconstruire 'storage' proprement.
         client,
         _space: space,
         _db: db,
         _tmp_dir: tmp_dir,
     }
+}
+
+// Helper de copie
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
 }

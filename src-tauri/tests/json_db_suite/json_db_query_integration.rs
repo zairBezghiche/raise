@@ -4,7 +4,7 @@ use serde_json::json;
 use serde_json::Value;
 use std::fs;
 
-use crate::common::{ensure_db_exists, get_dataset_file, init_test_env, TEST_DB, TEST_SPACE};
+use crate::{ensure_db_exists, get_dataset_file, init_test_env, TEST_DB, TEST_SPACE};
 use genaptitude::json_db::{
     collections::manager::CollectionsManager,
     query::{
@@ -34,12 +34,15 @@ fn seed_article<'a>(mgr: &'a CollectionsManager<'a>, handle: &str, doc_template:
             Value::String(format!("Display {}", handle)),
         );
         obj.insert(
+            "title".to_string(),
+            Value::String(format!("Titre de l'article {}", handle)),
+        );
+        obj.insert(
             "authorId".to_string(),
             Value::String("00000000-0000-0000-0000-000000000000".to_string()),
         );
     }
 
-    // CORRECTION : Utilisation de l'URI absolue
     let schema_uri = format!(
         "db://{}/{}/schemas/v1/articles/article.schema.json",
         TEST_SPACE, TEST_DB
@@ -49,6 +52,7 @@ fn seed_article<'a>(mgr: &'a CollectionsManager<'a>, handle: &str, doc_template:
     let stored = mgr
         .insert_with_schema("articles", doc)
         .expect("insert failed");
+
     stored.get("id").unwrap().as_str().unwrap().to_string()
 }
 
@@ -113,7 +117,8 @@ async fn query_find_many_with_sort_and_limit() {
     let mgr = CollectionsManager::new(&test_env.storage, TEST_SPACE, TEST_DB);
     let base_doc = load_test_doc(&test_env.cfg);
 
-    for i in 0..5 {
+    // On insère 10 articles : sort-0 ... sort-9
+    for i in 0..10 {
         seed_article(&mgr, &format!("sort-{}", i), &base_doc);
     }
 
@@ -121,6 +126,7 @@ async fn query_find_many_with_sort_and_limit() {
     let q = Query {
         collection: "articles".to_string(),
         filter: None,
+        // CORRECTION : Tri sur "handle" (Descendant) au lieu de "x_price"
         sort: Some(vec![SortField {
             field: "handle".to_string(),
             order: SortOrder::Desc,
@@ -133,8 +139,10 @@ async fn query_find_many_with_sort_and_limit() {
     let result = engine.execute_query(q).await.expect("query failed");
 
     assert_eq!(result.documents.len(), 3);
+
+    // "sort-9" est le plus grand alphabétiquement
     assert_eq!(
         result.documents[0].get("handle").unwrap().as_str(),
-        Some("sort-4")
+        Some("sort-9")
     );
 }

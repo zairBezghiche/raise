@@ -1,7 +1,15 @@
+// FICHIER : src-tauri/tests/ai_suite/mod.rs
+
 use genaptitude::ai::llm::client::LlmClient;
+use genaptitude::json_db::collections::manager::CollectionsManager; // Ajout
 use genaptitude::json_db::storage::{JsonDbConfig, StorageEngine};
 use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
+
+pub mod agent_tests;
+pub mod llm_tests;
 
 static INIT: Once = Once::new();
 
@@ -9,7 +17,6 @@ static INIT: Once = Once::new();
 pub struct AiTestEnv {
     pub storage: StorageEngine,
     pub client: LlmClient,
-    // Les champs ont été renommés avec un _ pour éviter les warnings
     pub _space: String,
     pub _db: String,
     pub _tmp_dir: tempfile::TempDir,
@@ -25,9 +32,51 @@ pub fn init_ai_test_env() -> AiTestEnv {
     });
 
     let tmp_dir = tempfile::tempdir().expect("create temp dir");
-    let config = JsonDbConfig::new(tmp_dir.path().to_path_buf());
-    let storage = StorageEngine::new(config);
+    let data_root = tmp_dir.path().to_path_buf();
 
+    // On utilise une nouvelle config basée sur le dossier temporaire
+    let config = JsonDbConfig {
+        data_root: data_root.clone(),
+    };
+
+    // IMPORTANT : On utilise "un2" car c'est l'espace par défaut codé en dur
+    // dans les prompts des agents pour l'instant.
+    let space = "un2".to_string();
+    let db = "_system".to_string();
+
+    // 1. Structure de base
+    let db_root = config.db_root(&space, &db);
+    fs::create_dir_all(&db_root).expect("create db root");
+
+    // 2. COPIE ROBUSTE DES SCHÉMAS (Comme dans code_gen_suite)
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let possible_paths = vec![
+        manifest_dir.join("../schemas/v1"),
+        manifest_dir.join("schemas/v1"),
+        PathBuf::from("schemas/v1"),
+    ];
+
+    let src_schemas = possible_paths
+        .into_iter()
+        .find(|p| p.exists())
+        .expect("❌ FATAL: Impossible de trouver 'schemas/v1' pour ai_suite.");
+
+    let dest_schemas_root = config.db_schemas_root(&space, &db).join("v1");
+    if !dest_schemas_root.exists() {
+        fs::create_dir_all(&dest_schemas_root).expect("create schema dir");
+    }
+    copy_dir_recursive(&src_schemas, &dest_schemas_root).expect("copy schemas");
+
+    // 3. INITIALISATION PROPRE VIA LE MANAGER
+    // On crée le moteur
+    let storage = StorageEngine::new(config);
+    // On instancie le manager pour initialiser la base
+    let mgr = CollectionsManager::new(&storage, &space, &db);
+
+    // On génère _system.json valide (avec ID, Dates, Schéma)
+    mgr.init_db().expect("❌ init_db failed in ai_suite");
+
+    // 4. Client LLM
     let gemini_key = env::var("GENAPTITUDE_GEMINI_KEY").unwrap_or_default();
     let model_name = env::var("GENAPTITUDE_MODEL_NAME").ok();
     let local_url =
@@ -38,9 +87,24 @@ pub fn init_ai_test_env() -> AiTestEnv {
     AiTestEnv {
         storage,
         client,
-        // CORRECTION ICI : Utilisation des noms avec préfixe _
-        _space: "test_space".to_string(),
-        _db: "_system".to_string(),
+        _space: space,
+        _db: db,
         _tmp_dir: tmp_dir,
     }
+}
+
+// Helper indispensable pour la copie
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !dst.exists() {
+        fs::create_dir_all(dst)?;
+    }
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
 }

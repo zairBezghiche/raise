@@ -1,5 +1,8 @@
+// FICHIER : src-tauri/src/ai/context/tests.rs
+
 use crate::ai::context::retriever::SimpleRetriever;
-use crate::model_engine::types::{ArcadiaElement, ProjectModel};
+// CORRECTION 1 : Ajout de NameType dans les imports
+use crate::model_engine::types::{ArcadiaElement, NameType, ProjectModel};
 use std::collections::HashMap;
 
 // Helper pour créer un élément factice rapidement
@@ -12,7 +15,8 @@ fn mock_element(name: &str, desc: &str) -> ArcadiaElement {
 
     ArcadiaElement {
         id: "uuid-test".to_string(),
-        name: name.to_string(),
+        // CORRECTION 2 : Enveloppement du nom dans NameType::String
+        name: NameType::String(name.to_string()),
         kind: "mock:Type".to_string(),
         properties: props,
     }
@@ -53,10 +57,6 @@ fn test_retriever_finds_relevant_info() {
         context.contains("Responsable du vol"),
         "Le contexte doit contenir la description"
     );
-
-    // Vérifier que les éléments non pertinents sont exclus (filtrage basique)
-    // Note: Notre SimpleRetriever actuel est assez permissif, mais s'il filtre, ceci devrait être vrai.
-    // Si le mot clé "vol" n'est pas dans "Alimenter Secteur", il ne devrait pas sortir.
 }
 
 #[test]

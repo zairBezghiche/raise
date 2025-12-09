@@ -1,71 +1,73 @@
-# 🦀 GenAptitude - Backend Rust (Tauri)
+### 1\. Fichier : `src-tauri/README.md`
 
-Ce dossier contient le code source **Rust** de l'application GenAptitude. Il gère la logique métier critique, la persistance des données, l'IA et les communications sécurisées.
+Copiez ce contenu et remplacez celui de `src-tauri/README.md`.
 
-## 🏗️ Architecture Modulaire
+````markdown
+# GenAptitude - Backend JSON-DB
 
-[cite_start]Le code est organisé en modules distincts exposés via `lib.rs`[cite: 14]:
+Moteur de base de données NoSQL orienté document, écrit en Rust, avec support des schémas JSON stricts, de l'indexation et des requêtes SQL.
 
-### 1. `json_db` (Persistance Avancée)
+## 🏗 Architecture
 
-Moteur de base de données NoSQL transactionnel conçu sur mesure pour garantir l'intégrité des données d'ingénierie.
+- **Storage** : Stockage fichier atomique (`_system.json`, `collections/`, `_meta.json`).
+- **Collections** : Gestionnaire CRUD avec validation de schéma (`$schema`).
+- **Indexes** : Moteur d'indexation modulaire (Hash, BTree, Text).
+- **Query Engine** : Support des filtres complexes et d'un sous-ensemble SQL.
 
-- **`collections/`** : Gestionnaire haut niveau (CRUD). [cite_start]Gère le cycle de vie des fichiers JSON et expose une API thread-safe (`CollectionsManager`)[cite: 13].
-- **`transactions/`** : Moteur ACID. [cite_start]Utilise un **Write-Ahead Log (WAL)** (`_wal.jsonl`) pour garantir l'atomicité des opérations multi-documents (`ActiveTransaction`).
-- [cite_start]**`indexes/`** : Moteur d'indexation (Hash, BTree, Text) maintenu en mémoire pour accélérer les lectures, avec persistance via `bincode`.
-- [cite_start]**`schema/`** : Registre de schémas (`SchemaRegistry`) et moteur `x_compute` pour les champs calculés (UUID, timestamps, pointeurs)[cite: 928].
-- [cite_start]**`query/`** : Moteur de requête (`QueryExecutor`) avec optimiseur, supportant les filtres complexes JSON[cite: 699].
+## 🛠 Utilisation du CLI (`jsondb_cli`)
 
-### 2. `blockchain` (Souveraineté)
+L'outil CLI permet d'administrer la base sans passer par l'interface graphique.
 
-[cite_start]Gestion de la sécurité distribuée et du réseau[cite: 510].
-
-- **`fabric/`** : Client gRPC pour Hyperledger Fabric. [cite_start]Permet de signer et soumettre des transactions (`RecordDecision`) localement via des identités MSP.
-- **`vpn/`** : Wrapper pour **Innernet** (WireGuard). [cite_start]Gère la création d'interfaces réseau mesh (`genaptitude0`) pour la communication P2P.
-
-### 3. `ai` (Intelligence Artificielle)
-
-[cite_start]Orchestrateur Neuro-Symbolique[cite: 571].
-
-- [cite_start]**`agents/`** : Implémentation des agents spécialisés (`HardwareAgent`, `SoftwareAgent`, `SystemAgent`) et classificateur d'intentions[cite: 12].
-- **`nlp/`** : Pipeline d'extraction d'entités et analyse syntaxique.
-- **`llm/`** : Client d'inférence pour modèles locaux.
-
-### 4. `model_engine` (MBSE)
-
-[cite_start]Manipulation des modèles d'ingénierie[cite: 15].
-
-- **`arcadia/`** : Structures de données pour les couches Arcadia (OA, SA, LA, PA, EPBS).
-- **`capella/`** : Parsers et générateurs pour l'interopérabilité Capella (XML/XMI).
-- **`validators/`** : Vérification de cohérence et compliance (ISO-26262, DO-178C).
-
----
-
-## 🛠️ Commandes Tauri (`src/commands`)
-
-[cite_start]L'API exposée au frontend est définie dans les modules suivants[cite: 539]:
-
-### [cite_start]Base de données (`json_db_commands.rs`) [cite: 553]
-
-- `jsondb_insert_with_schema` : Création avec validation et calcul automatique.
-- `jsondb_execute_transaction` : Exécution atomique d'un lot d'opérations (Insert/Update/Delete).
-- `jsondb_query_collection` : Recherche avancée avec filtres et tri.
-
-### [cite_start]Blockchain & Réseau (`blockchain_commands.rs`) [cite: 565]
-
-- `record_decision` : Ancrage d'une décision sur la blockchain.
-- `vpn_connect` / `vpn_get_status` : Gestion de la connexion au réseau privé.
-
----
-
-## 🧪 Tests
-
-[cite_start]Le projet inclut une suite de tests d'intégration complète (`tests/json_db_suite.rs`)[cite: 406]:
+### Commandes de Base
 
 ```bash
-# Lancer tous les tests d'intégration DB (Cycle de vie, ACID, x_compute)
-cargo test --test json_db_suite
+# 1. Création d'une base (Structure + Schémas standards)
+cargo run -p jsondb_cli -- --space un2 --db _system create-db
 
-# Lancer un test spécifique pour le debug
-RUST_LOG=debug cargo test --test json_db_suite -- transaction_commit_success
+# 2. Suppression d'une base (Irréversible)
+cargo run -p jsondb_cli -- --space un2 --db _system drop-db --force
+```
+````
+
+### Gestion des Données
+
+```bash
+# Insertion (Validation stricte selon le schéma)
+cargo run -p jsondb_cli -- --space un2 --db _system insert \
+  --collection articles \
+  --data '{ "handle": "test-1", "slug": "test-1", "title": "Titre", "displayName": "Display", "status": "draft" }'
+
+# Lecture
+cargo run -p jsondb_cli -- --space un2 --db _system list --collection articles
+```
+
+### Indexation & Performance
+
+```bash
+# Créer un index (Hash) sur un champ
+cargo run -p jsondb_cli -- --space un2 --db _system create-index \
+  --collection articles --field handle --kind hash
+
+# Supprimer un index
+cargo run -p jsondb_cli -- --space un2 --db _system drop-index \
+  --collection articles --field handle
+```
+
+### Requêtes SQL
+
+```bash
+cargo run -p jsondb_cli -- --space un2 --db _system sql \
+  --query "SELECT displayName, handle FROM articles WHERE handle = 'test-1'"
+```
+
+## ✅ Tests
+
+Le backend est couvert à 100% par des tests unitaires et d'intégration.
+
+```bash
+# Lancer toute la suite de tests
+cargo test
+
+# Lancer uniquement la suite JSON-DB
+cargo test --test json_db_suite
 ```

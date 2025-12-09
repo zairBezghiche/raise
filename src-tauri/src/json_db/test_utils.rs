@@ -1,5 +1,6 @@
 // FICHIER : src-tauri/src/json_db/test_utils.rs
 
+use crate::json_db::collections::manager::CollectionsManager;
 use crate::json_db::storage::{JsonDbConfig, StorageEngine};
 use std::env;
 use std::fs;
@@ -39,50 +40,48 @@ pub fn init_test_env() -> TestEnv {
     fs::create_dir_all(&db_root).expect("create db root");
 
     // 2. COPIE DES SCHÉMAS RÉELS
-    // On cherche la racine du repo de manière robuste
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")); // src-tauri
+    // On doit absolument trouver les schémas, sinon le test ne vaut rien.
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")); // Point vers src-tauri/
 
+    // On cherche relative à src-tauri (root du crate)
+    // Le dossier schemas est normalement dans "../schemas" par rapport à src-tauri
     let possible_paths = vec![
-        // Cas 1 : Exécution depuis la racine du workspace
-        manifest_dir.join("../schemas/v1"),
-        // Cas 2 : Exécution depuis src-tauri
-        manifest_dir.join("schemas/v1"),
-        // Cas 3 : Fallback relatif
-        PathBuf::from("schemas/v1"),
-        PathBuf::from("../schemas/v1"),
+        manifest_dir.join("../schemas/v1"), // Cas standard développement
+        manifest_dir.join("schemas/v1"),    // Cas si copié dedans
+        PathBuf::from("schemas/v1"),        // Cas exécution depuis root workspace
     ];
 
     let src_schemas = possible_paths.into_iter().find(|p| p.exists());
 
-    // Destination : <tmp>/test_space/test_db/_system/schemas/v1
+    // CORRECTION : PANIC si introuvable
+    let src = src_schemas.unwrap_or_else(|| {
+        panic!(
+            "❌ FATAL: Impossible de trouver le dossier 'schemas/v1' pour les tests.\nRecherché dans : {:?}",
+            vec![
+                manifest_dir.join("../schemas/v1"),
+                manifest_dir.join("schemas/v1"),
+                PathBuf::from("schemas/v1"),
+            ]
+        );
+    });
+
     let dest_schemas_root = cfg.db_schemas_root(TEST_SPACE, TEST_DB).join("v1");
-
-    if let Some(src) = src_schemas {
-        // println!("🧪 TEST: Copie des schémas depuis {:?} vers {:?}", src, dest_schemas_root);
-
-        if !dest_schemas_root.exists() {
-            fs::create_dir_all(&dest_schemas_root).expect("create schema dir");
-        }
-
-        // Copie récursive du contenu
-        copy_dir_recursive(&src, &dest_schemas_root).expect("copy schemas");
-    } else {
-        eprintln!("⚠️ WARNING: Impossible de trouver le dossier 'schemas/v1'. Les tests sémantiques vont échouer.");
-        eprintln!("   Cherché depuis : {:?}", manifest_dir);
+    if !dest_schemas_root.exists() {
+        fs::create_dir_all(&dest_schemas_root).expect("create schema dir");
     }
 
-    // 3. Initialisation de l'index _system.json (Minimal)
-    let system_index_path = cfg.db_root(TEST_SPACE, TEST_DB).join("_system.json");
-    if !system_index_path.exists() {
-        let minimal_index = serde_json::json!({
-            "space": TEST_SPACE,
-            "database": TEST_DB,
-            "collections": {}
-        });
-        fs::write(&system_index_path, minimal_index.to_string()).ok();
-    }
+    // Copie effective
+    copy_dir_recursive(&src, &dest_schemas_root).expect("copy schemas failed");
 
-    // 4. CRÉATION DES DATASETS MOCKS (Correction des chemins)
+    // 3. INITIALISATION PROPRE DU MOTEUR
+    let storage = StorageEngine::new(cfg.clone());
+    let mgr = CollectionsManager::new(&storage, TEST_SPACE, TEST_DB);
+
+    // Si cette étape échoue (ex: schéma index invalide), on le saura tout de suite
+    mgr.init_db()
+        .expect("Failed to initialize test database via Manager");
+
+    // 4. CRÉATION DES DATASETS MOCKS
     let dataset_root = data_root.join("dataset");
     fs::create_dir_all(&dataset_root).unwrap();
 
@@ -103,7 +102,7 @@ pub fn init_test_env() -> TestEnv {
     }"#;
     fs::write(&article_path, mock_article).unwrap();
 
-    // Mock Exchange Item (pour debug_import_exchange_item)
+    // Mock Exchange Item
     let ex_item_rel = "arcadia/v1/data/exchange-items/position_gps.json";
     let ex_item_path = dataset_root.join(ex_item_rel);
     if let Some(p) = ex_item_path.parent() {
@@ -111,16 +110,9 @@ pub fn init_test_env() -> TestEnv {
     }
     fs::write(
         &ex_item_path,
-        r#"{ "name": "GPS Position", "exchangeMechanism": "Flow" }"#,
+        r#"{ "name": "GPS Position", "mechanism": "Flow" }"#,
     )
     .unwrap();
-
-    // Mock Actor (pour json_db_sql)
-    // Note: Le test SQL s'attend à ce que le fichier existe pour le charger,
-    // mais seed_actors_from_dataset dans le test s'occupe aussi de l'écriture.
-    // On prépare juste le terrain ici.
-
-    let storage = StorageEngine::new(cfg.clone());
 
     TestEnv {
         cfg,
@@ -142,8 +134,6 @@ pub fn get_dataset_file(cfg: &JsonDbConfig, rel_path: &str) -> PathBuf {
     let root = cfg.data_root.join("dataset");
     let path = root.join(rel_path);
 
-    // CORRECTION : On s'assure que le dossier parent existe.
-    // C'est vital pour les tests qui écrivent des fichiers à la volée (ex: json_db_sql).
     if let Some(parent) = path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent).expect("Failed to create dataset parent dir");
@@ -164,8 +154,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 
         if ty.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            // On copie tout, pas que les json, au cas où il y a des README ou autres
+        } else if src_path.extension().is_some_and(|e| e == "json") {
             fs::copy(&src_path, &dst_path)?;
         }
     }

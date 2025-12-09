@@ -49,6 +49,8 @@ async-trait = "0.1"
 tiktoken-rs = "0.9.1"
 text-splitter = { version = "0.28.0", features = ["markdown"] }
 tera = "1.19"
+include_dir = "0.7"
+
 
 [features]
 # Utilisé pour les builds prod quand aucun dev server n'est défini

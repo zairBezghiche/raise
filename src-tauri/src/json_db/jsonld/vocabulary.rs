@@ -1,14 +1,9 @@
 // FICHIER : src-tauri/src/json_db/jsonld/vocabulary.rs
 
-//! Vocabulaire et ontologie Arcadia
-//!
-//! Ce module définit les types, classes et propriétés pour chaque phase
-//! de la méthode Arcadia (OA, SA, LA, PA, EPBS).
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Espace de noms des ontologies Arcadia
+// --- NAMESPACES ---
 pub mod namespaces {
     pub const ARCADIA: &str = "https://genaptitude.io/ontology/arcadia#";
     pub const OA: &str = "https://genaptitude.io/ontology/arcadia/oa#";
@@ -16,9 +11,10 @@ pub mod namespaces {
     pub const LA: &str = "https://genaptitude.io/ontology/arcadia/la#";
     pub const PA: &str = "https://genaptitude.io/ontology/arcadia/pa#";
     pub const EPBS: &str = "https://genaptitude.io/ontology/arcadia/epbs#";
+    // Ajout du namespace DATA
     pub const DATA: &str = "https://genaptitude.io/ontology/arcadia/data#";
 
-    // Standards sémantiques
+    // Standards
     pub const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
     pub const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
     pub const OWL: &str = "http://www.w3.org/2002/07/owl#";
@@ -27,45 +23,48 @@ pub mod namespaces {
     pub const PROV: &str = "http://www.w3.org/ns/prov#";
 }
 
-/// Constantes des types Arcadia pour le typage fort dans le Model Engine
+// --- CONSTANTES DE TYPAGE (Utilisées par le Model Engine) ---
 pub mod arcadia_types {
-    // --- OA (Operational Analysis) ---
+    // OA
     pub const OA_ACTOR: &str = "OperationalActor";
     pub const OA_ACTIVITY: &str = "OperationalActivity";
     pub const OA_CAPABILITY: &str = "OperationalCapability";
     pub const OA_ENTITY: &str = "OperationalEntity";
     pub const OA_EXCHANGE: &str = "OperationalExchange";
 
-    // --- SA (System Analysis) ---
+    // SA
     pub const SA_COMPONENT: &str = "SystemComponent";
     pub const SA_FUNCTION: &str = "SystemFunction";
     pub const SA_ACTOR: &str = "SystemActor";
     pub const SA_CAPABILITY: &str = "SystemCapability";
-    // Note: FunctionalExchange existe en SA et LA
     pub const SA_EXCHANGE: &str = "FunctionalExchange";
 
-    // --- LA (Logical Architecture) ---
+    // LA
     pub const LA_COMPONENT: &str = "LogicalComponent";
     pub const LA_FUNCTION: &str = "LogicalFunction";
     pub const LA_ACTOR: &str = "LogicalActor";
     pub const LA_INTERFACE: &str = "LogicalInterface";
-    pub const LA_EXCHANGE: &str = "FunctionalExchange";
 
-    // --- PA (Physical Architecture) ---
+    // PA
     pub const PA_COMPONENT: &str = "PhysicalComponent";
     pub const PA_FUNCTION: &str = "PhysicalFunction";
     pub const PA_ACTOR: &str = "PhysicalActor";
     pub const PA_LINK: &str = "PhysicalLink";
 
-    // --- EPBS ---
+    // EPBS
     pub const EPBS_ITEM: &str = "ConfigurationItem";
 
-    /// Helper pour construire l'URI complète (ex: "https://.../oa#OperationalActor")
+    // DATA (Nouveau)
+    pub const DATA_CLASS: &str = "Class";
+    pub const DATA_TYPE: &str = "DataType";
+    pub const EXCHANGE_ITEM: &str = "ExchangeItem";
+
     pub fn uri(namespace: &str, type_name: &str) -> String {
         format!("{}{}", namespace, type_name)
     }
 }
 
+// --- STRUCTURES ---
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PropertyType {
     DatatypeProperty,
@@ -89,12 +88,15 @@ pub struct Property {
     pub range: Option<String>,
 }
 
-// --- Sous-modules existants (conservés pour la compatibilité) ---
+// ============================================================================
+// DÉFINITIONS DES MODULES MÉTIERS
+// ============================================================================
 
 pub mod oa {
     use super::*;
     pub const OPERATIONAL_ACTIVITY: &str = "OperationalActivity";
     pub const OPERATIONAL_CAPABILITY: &str = "OperationalCapability";
+    pub const OPERATIONAL_ACTOR: &str = "OperationalActor";
     pub const OPERATIONAL_ENTITY: &str = "OperationalEntity";
 
     pub fn classes() -> Vec<Class> {
@@ -111,6 +113,18 @@ pub mod oa {
                 comment: "An ability of an organization to provide a service".to_string(),
                 sub_class_of: None,
             },
+            Class {
+                iri: format!("{}{}", namespaces::OA, OPERATIONAL_ACTOR),
+                label: "Operational Actor".to_string(),
+                comment: "An entity interacting with the system".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::OA, OPERATIONAL_ENTITY),
+                label: "Operational Entity".to_string(),
+                comment: "An organization or group of actors".to_string(),
+                sub_class_of: None,
+            },
         ]
     }
 
@@ -125,7 +139,163 @@ pub mod oa {
     }
 }
 
-// --- Registry ---
+pub mod sa {
+    use super::*;
+    pub const SYSTEM_FUNCTION: &str = "SystemFunction";
+    pub const SYSTEM_COMPONENT: &str = "SystemComponent";
+    pub const SYSTEM_ACTOR: &str = "SystemActor";
+    pub const SYSTEM_CAPABILITY: &str = "SystemCapability";
+
+    pub fn classes() -> Vec<Class> {
+        vec![
+            Class {
+                iri: format!("{}{}", namespaces::SA, SYSTEM_FUNCTION),
+                label: "System Function".to_string(),
+                comment: "A function performed by the system".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::SA, SYSTEM_COMPONENT),
+                label: "System Component".to_string(),
+                comment: "A component of the system".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::SA, SYSTEM_ACTOR),
+                label: "System Actor".to_string(),
+                comment: "External actor interacting with the system".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::SA, SYSTEM_CAPABILITY),
+                label: "System Capability".to_string(),
+                comment: "Ability of the system".to_string(),
+                sub_class_of: None,
+            },
+        ]
+    }
+}
+
+pub mod la {
+    use super::*;
+    pub const LOGICAL_COMPONENT: &str = "LogicalComponent";
+    pub const LOGICAL_FUNCTION: &str = "LogicalFunction";
+    pub const LOGICAL_ACTOR: &str = "LogicalActor";
+    pub const LOGICAL_INTERFACE: &str = "LogicalInterface";
+
+    pub fn classes() -> Vec<Class> {
+        vec![
+            Class {
+                iri: format!("{}{}", namespaces::LA, LOGICAL_COMPONENT),
+                label: "Logical Component".to_string(),
+                comment: "A logical component".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::LA, LOGICAL_FUNCTION),
+                label: "Logical Function".to_string(),
+                comment: "A function in logical architecture".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::LA, LOGICAL_ACTOR),
+                label: "Logical Actor".to_string(),
+                comment: "Actor in logical architecture".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::LA, LOGICAL_INTERFACE),
+                label: "Logical Interface".to_string(),
+                comment: "Interface definition".to_string(),
+                sub_class_of: None,
+            },
+        ]
+    }
+}
+
+pub mod pa {
+    use super::*;
+    pub const PHYSICAL_COMPONENT: &str = "PhysicalComponent";
+    pub const PHYSICAL_FUNCTION: &str = "PhysicalFunction";
+    pub const PHYSICAL_ACTOR: &str = "PhysicalActor";
+    pub const PHYSICAL_LINK: &str = "PhysicalLink";
+
+    pub fn classes() -> Vec<Class> {
+        vec![
+            Class {
+                iri: format!("{}{}", namespaces::PA, PHYSICAL_COMPONENT),
+                label: "Physical Component".to_string(),
+                comment: "Node or Behavior component".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::PA, PHYSICAL_FUNCTION),
+                label: "Physical Function".to_string(),
+                comment: "Function deployed on hardware".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::PA, PHYSICAL_ACTOR),
+                label: "Physical Actor".to_string(),
+                comment: "Physical entity interacting with the system".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::PA, PHYSICAL_LINK),
+                label: "Physical Link".to_string(),
+                comment: "Cable, Bus, or Wireless connection".to_string(),
+                sub_class_of: None,
+            },
+        ]
+    }
+}
+
+pub mod epbs {
+    use super::*;
+    pub const CONFIGURATION_ITEM: &str = "ConfigurationItem";
+
+    pub fn classes() -> Vec<Class> {
+        vec![Class {
+            iri: format!("{}{}", namespaces::EPBS, CONFIGURATION_ITEM),
+            label: "Configuration Item".to_string(),
+            comment: "Element of configuration (HWCI, CSCI)".to_string(),
+            sub_class_of: None,
+        }]
+    }
+}
+
+// <--- AJOUT DU MODULE DATA
+pub mod data {
+    use super::*;
+    pub const CLASS: &str = "Class";
+    pub const DATA_TYPE: &str = "DataType";
+    pub const EXCHANGE_ITEM: &str = "ExchangeItem";
+
+    pub fn classes() -> Vec<Class> {
+        vec![
+            Class {
+                iri: format!("{}{}", namespaces::DATA, CLASS),
+                label: "Data Class".to_string(),
+                comment: "A complex data structure with attributes".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::DATA, DATA_TYPE),
+                label: "Data Type".to_string(),
+                comment: "Primitive type or enumeration".to_string(),
+                sub_class_of: None,
+            },
+            Class {
+                iri: format!("{}{}", namespaces::DATA, EXCHANGE_ITEM),
+                label: "Exchange Item".to_string(),
+                comment: "An element exchanged between functions".to_string(),
+                sub_class_of: None,
+            },
+        ]
+    }
+}
+
+// --- REGISTRE PRINCIPAL ---
 
 pub struct VocabularyRegistry {
     classes: HashMap<String, Class>,
@@ -144,7 +314,15 @@ impl VocabularyRegistry {
             classes: HashMap::new(),
             properties: HashMap::new(),
         };
+
+        // Enregistrement de tous les modules
         registry.register_module_oa();
+        registry.register_module_sa();
+        registry.register_module_la();
+        registry.register_module_pa();
+        registry.register_module_epbs();
+        registry.register_module_data(); // <--- AJOUT
+
         registry
     }
 
@@ -157,6 +335,37 @@ impl VocabularyRegistry {
         }
     }
 
+    fn register_module_sa(&mut self) {
+        for cls in sa::classes() {
+            self.classes.insert(cls.iri.clone(), cls);
+        }
+    }
+
+    fn register_module_la(&mut self) {
+        for cls in la::classes() {
+            self.classes.insert(cls.iri.clone(), cls);
+        }
+    }
+
+    fn register_module_pa(&mut self) {
+        for cls in pa::classes() {
+            self.classes.insert(cls.iri.clone(), cls);
+        }
+    }
+
+    fn register_module_epbs(&mut self) {
+        for cls in epbs::classes() {
+            self.classes.insert(cls.iri.clone(), cls);
+        }
+    }
+
+    // <--- AJOUT
+    fn register_module_data(&mut self) {
+        for cls in data::classes() {
+            self.classes.insert(cls.iri.clone(), cls);
+        }
+    }
+
     pub fn get_class(&self, iri: &str) -> Option<&Class> {
         self.classes.get(iri)
     }
@@ -165,7 +374,6 @@ impl VocabularyRegistry {
         self.classes.contains_key(iri)
     }
 
-    /// Retourne les préfixes standards pour le processeur JSON-LD
     pub fn get_default_prefixes() -> HashMap<String, String> {
         let mut map = HashMap::new();
         map.insert("arcadia".to_string(), namespaces::ARCADIA.to_string());
@@ -174,7 +382,7 @@ impl VocabularyRegistry {
         map.insert("la".to_string(), namespaces::LA.to_string());
         map.insert("pa".to_string(), namespaces::PA.to_string());
         map.insert("epbs".to_string(), namespaces::EPBS.to_string());
-        map.insert("data".to_string(), namespaces::DATA.to_string());
+        map.insert("data".to_string(), namespaces::DATA.to_string()); // <--- AJOUT
 
         map.insert("rdf".to_string(), namespaces::RDF.to_string());
         map.insert("rdfs".to_string(), namespaces::RDFS.to_string());
@@ -184,7 +392,6 @@ impl VocabularyRegistry {
         map
     }
 
-    /// Vérifie si une chaîne est une IRI absolue
     pub fn is_iri(term: &str) -> bool {
         term.starts_with("http://") || term.starts_with("https://") || term.starts_with("urn:")
     }

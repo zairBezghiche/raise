@@ -1,5 +1,4 @@
-// src-tauri/src/main.rs
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+// FICHIER : src-tauri/src/main.rs
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::env;
@@ -27,31 +26,40 @@ fn main() {
                 path
             };
 
-            // Création de la config
             let config = JsonDbConfig::new(db_root);
-
-            // Création et injection du moteur
             let storage = StorageEngine::new(config);
             app.manage(storage);
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Commandes JSON-DB
+            // --- GESTION DATABASE (NOUVEAU) ---
+            json_db_commands::jsondb_create_db,
+            json_db_commands::jsondb_drop_db,
+            
+            // --- GESTION COLLECTIONS ---
             json_db_commands::jsondb_create_collection,
             json_db_commands::jsondb_list_collections,
+            json_db_commands::jsondb_drop_collection, // (Ajouté)
+
+            // --- GESTION INDEXES (NOUVEAU) ---
+            json_db_commands::jsondb_create_index,
+            json_db_commands::jsondb_drop_index,
+
+            // --- CRUD DOCUMENTS ---
             json_db_commands::jsondb_insert_document,
             json_db_commands::jsondb_get_document,
             json_db_commands::jsondb_update_document,
             json_db_commands::jsondb_delete_document,
+            json_db_commands::jsondb_list_all,
+
+            // --- REQUÊTES ---
             json_db_commands::jsondb_execute_query,
             json_db_commands::jsondb_execute_sql,
-            json_db_commands::jsondb_list_all,
-            // Commandes Modèle
+
+            // --- AUTRES COMMANDES EXISTANTES ---
             model_commands::load_project_model,
-            // Commandes Modèle
             ai_commands::ai_chat,
-            // Commandes Blockchain
             blockchain_commands::fabric_ping,
             blockchain_commands::fabric_submit_transaction,
             blockchain_commands::fabric_query_transaction,

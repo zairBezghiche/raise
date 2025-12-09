@@ -50,6 +50,14 @@ export interface EPBSLayer {
   configurationItems: ArcadiaElement[];
 }
 
+// --- NOUVEAU : Couche DATA ---
+export interface DataLayer {
+  classes: ArcadiaElement[];
+  dataTypes: ArcadiaElement[];
+  exchangeItems: ArcadiaElement[];
+}
+// -----------------------------
+
 export interface ProjectMeta {
   name: string;
   loadedAt: string;
@@ -64,5 +72,9 @@ export interface ProjectModel {
   la: LogicalArchitectureLayer;
   pa: PhysicalArchitectureLayer;
   epbs: EPBSLayer;
+
+  // Ajout de la couche Data
+  data: DataLayer;
+
   meta: ProjectMeta;
 }

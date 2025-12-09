@@ -168,11 +168,10 @@ impl JsonLdProcessor {
         let expanded = self.expand(doc);
         for &field in required {
             let iri = self.context_manager.expand_term(field);
-            if expanded.get(&iri).is_none() {
-                if doc.get(field).is_none() {
+            if expanded.get(&iri).is_none()
+                && doc.get(field).is_none() {
                     return Err(anyhow!("Champ requis manquant : {}", field));
                 }
-            }
         }
         Ok(())
     }

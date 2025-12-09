@@ -56,7 +56,7 @@ pub fn list_pending(config: &JsonDbConfig, space: &str, db: &str) -> Result<Vec<
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_some_and(|ext| ext == "json") {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                     pending_ids.push(stem.to_string());
                 }

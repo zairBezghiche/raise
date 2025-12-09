@@ -3,33 +3,52 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// La racine d'un projet Arcadia chargé en mémoire
-/// Ce modèle agrège toutes les données sans perte d'information (properties: HashMap)
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ProjectModel {
-    #[serde(default)]
-    pub oa: OperationalAnalysis,
-    #[serde(default)]
-    pub sa: SystemAnalysis,
-    #[serde(default)]
-    pub la: LogicalArchitecture,
-    #[serde(default)]
-    pub pa: PhysicalArchitecture,
-    #[serde(default)]
-    pub epbs: EPBS,
+// --- Enums & Types de base ---
 
-    /// Métadonnées globales du projet
-    #[serde(default)]
-    pub meta: ProjectMeta,
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum NameType {
+    String(String),
+    I18n(HashMap<String, String>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct ProjectMeta {
-    pub element_count: usize,
+impl Default for NameType {
+    fn default() -> Self {
+        NameType::String("Sans nom".to_string())
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct OperationalAnalysis {
+impl NameType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            NameType::String(s) => s,
+            NameType::I18n(map) => map
+                .get("fr")
+                .or_else(|| map.get("en"))
+                .map(|s| s.as_str())
+                .unwrap_or("Sans nom"),
+        }
+    }
+}
+
+// --- Structure Élémentaire ---
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ArcadiaElement {
+    pub id: String,
+    pub name: NameType, // Le fameux changement de type
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub properties: HashMap<String, serde_json::Value>,
+}
+
+// --- Couches ---
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationalAnalysisLayer {
     #[serde(default)]
     pub actors: Vec<ArcadiaElement>,
     #[serde(default)]
@@ -42,69 +61,97 @@ pub struct OperationalAnalysis {
     pub exchanges: Vec<ArcadiaElement>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct SystemAnalysis {
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemAnalysisLayer {
     #[serde(default)]
-    pub functions: Vec<ArcadiaElement>,
+    pub components: Vec<ArcadiaElement>,
     #[serde(default)]
     pub actors: Vec<ArcadiaElement>,
     #[serde(default)]
-    pub capabilities: Vec<ArcadiaElement>,
-
-    // AJOUT : Ce champ manquait pour le SystemComponent (le "Système")
+    pub functions: Vec<ArcadiaElement>,
     #[serde(default)]
-    pub components: Vec<ArcadiaElement>,
-
+    pub capabilities: Vec<ArcadiaElement>,
     #[serde(default)]
     pub exchanges: Vec<ArcadiaElement>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct LogicalArchitecture {
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LogicalArchitectureLayer {
     #[serde(default)]
     pub components: Vec<ArcadiaElement>,
     #[serde(default)]
-    pub functions: Vec<ArcadiaElement>,
-    #[serde(default)]
     pub actors: Vec<ArcadiaElement>,
+    #[serde(default)]
+    pub functions: Vec<ArcadiaElement>,
     #[serde(default)]
     pub interfaces: Vec<ArcadiaElement>,
     #[serde(default)]
     pub exchanges: Vec<ArcadiaElement>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct PhysicalArchitecture {
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PhysicalArchitectureLayer {
     #[serde(default)]
-    pub components: Vec<ArcadiaElement>, // Node & Behavior
-    #[serde(default)]
-    pub functions: Vec<ArcadiaElement>,
+    pub components: Vec<ArcadiaElement>,
     #[serde(default)]
     pub actors: Vec<ArcadiaElement>,
+    #[serde(default)]
+    pub functions: Vec<ArcadiaElement>,
     #[serde(default)]
     pub links: Vec<ArcadiaElement>,
     #[serde(default)]
     pub exchanges: Vec<ArcadiaElement>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct EPBS {
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EPBSLayer {
     #[serde(default)]
     pub configuration_items: Vec<ArcadiaElement>,
 }
 
-/// Élément générique Arcadia (Nœud du graphe)
-/// Cette structure est flexible et peut accueillir n'importe quel type JSON-LD.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ArcadiaElement {
-    pub id: String,
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DataLayer {
+    #[serde(default)]
+    pub classes: Vec<ArcadiaElement>,
+    #[serde(default)]
+    pub data_types: Vec<ArcadiaElement>,
+    #[serde(default)]
+    pub exchange_items: Vec<ArcadiaElement>,
+}
+
+// --- Racine ---
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectMeta {
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub loaded_at: String,
+    #[serde(default)]
+    pub element_count: usize,
+}
 
-    /// Type sémantique complet (URI, ex: "https://...#OperationalActor")
-    #[serde(rename = "type")]
-    pub kind: String,
-
-    /// Propriétés dynamiques (champs métiers, relations, extensions PVMT)
-    #[serde(flatten)]
-    pub properties: HashMap<String, serde_json::Value>,
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectModel {
+    #[serde(default)]
+    pub oa: OperationalAnalysisLayer,
+    #[serde(default)]
+    pub sa: SystemAnalysisLayer,
+    #[serde(default)]
+    pub la: LogicalArchitectureLayer,
+    #[serde(default)]
+    pub pa: PhysicalArchitectureLayer,
+    #[serde(default)]
+    pub epbs: EPBSLayer,
+    #[serde(default)]
+    pub data: DataLayer,
+    #[serde(default)]
+    pub meta: ProjectMeta,
 }

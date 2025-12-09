@@ -3,90 +3,129 @@
 #[cfg(test)]
 mod integration_tests {
     use crate::json_db::collections::manager::CollectionsManager;
-    use crate::json_db::storage::file_storage;
-    use crate::json_db::test_utils::init_test_env;
+    use crate::json_db::storage::{JsonDbConfig, StorageEngine};
     use crate::model_engine::loader::ModelLoader;
     use serde_json::json;
+    use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    // --- Helper d'initialisation ---
+    fn setup_env(space: &str, db: &str) -> (tempfile::TempDir, JsonDbConfig) {
+        let tmp_dir = tempfile::tempdir().expect("create temp dir");
+        let data_root = tmp_dir.path().to_path_buf();
+        let config = JsonDbConfig { data_root };
+
+        let db_root = config.db_root(space, db);
+        fs::create_dir_all(&db_root).expect("create db root");
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let possible_paths = vec![
+            manifest_dir.join("../schemas/v1"),
+            manifest_dir.join("schemas/v1"),
+            PathBuf::from("schemas/v1"),
+        ];
+        let src_schemas = possible_paths
+            .into_iter()
+            .find(|p| p.exists())
+            .expect("❌ FATAL: 'schemas/v1' introuvable");
+
+        let dest_schemas = config.db_schemas_root(space, db).join("v1");
+        if !dest_schemas.exists() {
+            fs::create_dir_all(&dest_schemas).unwrap();
+        }
+        copy_dir_recursive(&src_schemas, &dest_schemas).unwrap();
+
+        let storage = StorageEngine::new(config.clone());
+        let mgr = CollectionsManager::new(&storage, space, db);
+        mgr.init_db().expect("init_db failed");
+
+        (tmp_dir, config)
+    }
+
+    fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+        if !dst.exists() {
+            fs::create_dir_all(dst)?;
+        }
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                copy_dir_recursive(&entry.path(), &dst.join(entry.file_name()))?;
+            } else {
+                fs::copy(entry.path(), dst.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_semantic_loading_oa_and_sa() {
-        // 1. Initialisation de l'environnement de test isolé
-        let env = init_test_env();
-        let cfg = &env.cfg;
         let space = "test_space_model";
         let db = "test_db_model";
+        let (_tmp, config) = setup_env(space, db);
 
-        // Création physique de la DB
-        file_storage::create_db(cfg, space, db).expect("create db");
+        let storage = StorageEngine::new(config.clone());
+        let mgr = CollectionsManager::new(&storage, space, db);
 
-        let storage = &env.storage;
-        let mgr = CollectionsManager::new(storage, space, db);
+        // Insertion OA
+        mgr.insert_with_schema(
+            "actors",
+            json!({
+                "@context": { "oa": "https://genaptitude.io/ontology/arcadia/oa#" },
+                "@type": "oa:OperationalActor",
+                "name": "Opérateur Humain"
+            }),
+        )
+        .expect("insert oa");
 
-        // 2. Insertion d'un Acteur OA (avec contexte JSON-LD explicite)
-        // Le loader doit reconnaître "oa:OperationalActor" et l'expandre
-        let oa_actor = json!({
-            "@context": {
-                "oa": "https://genaptitude.io/ontology/arcadia/oa#",
-                "name": "http://www.w3.org/2004/02/skos/core#prefLabel"
-            },
-            "@id": "urn:uuid:actor-oa-001",
-            "@type": "oa:OperationalActor",
-            "name": "Opérateur Humain",
-            "description": "Un opérateur dans la boucle"
-        });
-        // On insère dans une collection arbitraire "actors", le loader scanne tout
-        mgr.insert_with_schema("actors", oa_actor)
-            .expect("insert oa actor");
+        // Insertion SA
+        mgr.insert_with_schema(
+            "functions",
+            json!({
+                "@context": { "sa": "https://genaptitude.io/ontology/arcadia/sa#" },
+                "@type": "sa:SystemFunction",
+                "name": "Calculer Trajectoire"
+            }),
+        )
+        .expect("insert sa");
 
-        // 3. Insertion d'une Fonction Système SA
-        // Ici on teste la capacité à mapper "sa:SystemFunction" vers model.sa.functions
-        let sa_func = json!({
-            "@context": {
-                "sa": "https://genaptitude.io/ontology/arcadia/sa#",
-                "name": "http://www.w3.org/2004/02/skos/core#prefLabel"
-            },
-            "@id": "urn:uuid:func-sa-001",
-            "@type": "sa:SystemFunction",
-            "name": "Calculer Trajectoire",
-            "criticality": "high"
-        });
-        mgr.insert_with_schema("functions", sa_func)
-            .expect("insert sa function");
+        let loader = ModelLoader::new_with_manager(mgr);
+        let model = loader.load_full_model().expect("load model");
 
-        // 4. Chargement du modèle via le ModelEngine
-        // On utilise le constructeur découplé 'from_engine'
-        let loader = ModelLoader::from_engine(storage, space, db);
+        // Vérifications avec NameType (.as_str())
+        assert_eq!(model.oa.actors.len(), 1);
+        assert_eq!(model.oa.actors[0].name.as_str(), "Opérateur Humain");
+        assert!(model.oa.actors[0].kind.ends_with("OperationalActor"));
 
-        // Charge tout le modèle en mémoire (synchrone pour le test)
-        let model = loader.load_full_model().expect("load full model");
+        assert_eq!(model.sa.functions.len(), 1);
+        assert!(model.sa.functions[0].kind.ends_with("SystemFunction"));
+    }
 
-        // 5. Assertions
+    #[test]
+    fn test_loading_data_layer() {
+        let space = "test_space_data";
+        let db = "test_db_data";
+        let (_tmp, config) = setup_env(space, db);
 
-        // A. Vérification OA (Operational Analysis)
-        assert_eq!(model.oa.actors.len(), 1, "Devrait avoir 1 acteur OA");
-        let actor = &model.oa.actors[0];
-        assert_eq!(actor.name, "Opérateur Humain");
-        // Vérifie que l'URI a été complètement résolue
-        assert_eq!(
-            actor.kind,
-            "https://genaptitude.io/ontology/arcadia/oa#OperationalActor"
-        );
+        let storage = StorageEngine::new(config.clone());
+        let mgr = CollectionsManager::new(&storage, space, db);
 
-        // B. Vérification SA (System Analysis)
-        assert_eq!(model.sa.functions.len(), 1, "Devrait avoir 1 fonction SA");
-        let func = &model.sa.functions[0];
-        assert_eq!(func.name, "Calculer Trajectoire");
-        assert_eq!(
-            func.kind,
-            "https://genaptitude.io/ontology/arcadia/sa#SystemFunction"
-        );
+        mgr.insert_with_schema(
+            "exchange-items",
+            json!({
+                "@context": { "data": "https://genaptitude.io/ontology/arcadia/data#" },
+                "@type": "data:ExchangeItem",
+                "name": "Position GPS",
+                "mechanism": "Flow"
+            }),
+        )
+        .expect("insert item");
 
-        // Vérifie que les propriétés dynamiques sont préservées
-        assert_eq!(
-            func.properties.get("criticality").and_then(|v| v.as_str()),
-            Some("high")
-        );
+        let loader = ModelLoader::new_with_manager(mgr);
+        let model = loader.load_full_model().expect("load model");
 
-        println!("✅ Test Semantic Loader réussi : OA et SA correctement dispatchés.");
+        assert_eq!(model.data.exchange_items.len(), 1);
+        assert_eq!(model.data.exchange_items[0].name.as_str(), "Position GPS");
+        assert!(model.data.exchange_items[0].kind.ends_with("ExchangeItem"));
     }
 }

@@ -17,7 +17,7 @@ pub fn parse_projection(fields: &[String]) -> Result<Projection> {
     let is_exclude = fields[0].starts_with('-');
     let cleaned: Vec<String> = fields
         .iter()
-        .map(|f| f.trim_start_matches(|c| c == '+' || c == '-').to_string())
+        .map(|f| f.trim_start_matches(['+', '-']).to_string())
         .collect();
 
     if is_exclude {

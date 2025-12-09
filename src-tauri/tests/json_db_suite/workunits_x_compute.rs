@@ -1,4 +1,4 @@
-use crate::common::{ensure_db_exists, init_test_env, TEST_DB, TEST_SPACE};
+use crate::{ensure_db_exists, init_test_env, TEST_DB, TEST_SPACE};
 use genaptitude::json_db::schema::{SchemaRegistry, SchemaValidator};
 use serde_json::json;
 use uuid::Uuid;

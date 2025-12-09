@@ -1,8 +1,15 @@
-// src-tauri/tests/json_db_suite/json_db_lifecycle.rs
+// FICHIER : src-tauri/tests/json_db_suite/json_db_lifecycle.rs
 
-use crate::common::{init_test_env, TEST_DB, TEST_SPACE};
+use crate::{init_test_env, TEST_DB, TEST_SPACE};
 use genaptitude::json_db::storage::file_storage::{create_db, drop_db, open_db, DropMode};
 use std::fs;
+
+// --- AJOUTS CORRECTS ---
+use genaptitude::json_db::collections::manager::CollectionsManager; // <--- Ici genaptitude:: au lieu de crate::
+use genaptitude::json_db::schema::{SchemaRegistry, SchemaValidator};
+use serde_json::json;
+use serde_json::Value;
+// -----------------------
 
 #[test]
 fn db_lifecycle_minimal() {
@@ -17,7 +24,6 @@ fn db_lifecycle_minimal() {
     let db_root = cfg.db_root(space, db);
     assert!(db_root.is_dir(), "db root doit exister physiquement");
 
-    // CORRECTION : _ prefix pour unused variable
     let _index_path = cfg.db_root(space, db).join("_system.json");
 
     let schemas_path = cfg.db_schemas_root(space, db);
@@ -60,4 +66,147 @@ fn db_lifecycle_minimal() {
         "après hard drop, la DB doit être supprimée définitivement"
     );
 }
-// ... (les autres tests restent inchangés)
+
+#[test]
+fn db_lifecycle_create_open_drop() {
+    let test_env = init_test_env();
+    let cfg = &test_env.cfg;
+    let space = "un2";
+    let db = "_system_lifecycle_test";
+
+    // Nettoyage manuel au cas où
+    let root = cfg.db_root(space, db);
+    if root.exists() {
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    // 1. Création
+    create_db(cfg, space, db).expect("create");
+
+    // 2. Ouverture
+    // Note: open_db ne retourne rien dans l'implémentation actuelle (Result<()>),
+    // donc on vérifie juste que ça ne plante pas.
+    open_db(cfg, space, db).expect("open");
+
+    // 3. Soft drop
+    drop_db(cfg, space, db, DropMode::Soft).expect("soft drop");
+
+    // 4. Hard drop (idempotent sur dossier inexistant ou déplacé)
+    drop_db(cfg, space, db, DropMode::Hard).expect("hard drop");
+}
+
+#[test]
+fn test_collection_drop_cleans_system_index() {
+    let env = init_test_env();
+    let cfg = &env.cfg;
+    let space = TEST_SPACE;
+    let db = TEST_DB;
+
+    // On utilise le manager importé correctement depuis 'genaptitude'
+    let mgr = CollectionsManager::new(&env.storage, space, db);
+    let collection = "temp_collection_to_drop";
+
+    // 1. Création de la collection
+    mgr.create_collection(collection, None)
+        .expect("create collection failed");
+
+    // 2. Vérification : Elle doit exister physiquement
+    let col_path = cfg.db_collection_path(space, db, collection);
+    assert!(col_path.exists(), "Le dossier collection doit exister");
+
+    // 3. Vérification : Elle doit être dans _system.json
+    let sys_path = cfg.db_root(space, db).join("_system.json");
+    let content = fs::read_to_string(&sys_path).expect("read _system.json");
+    let sys_json: Value = serde_json::from_str(&content).expect("parse _system.json");
+
+    assert!(
+        sys_json
+            .pointer(&format!("/collections/{}", collection))
+            .is_some(),
+        "La collection doit être présente dans _system.json avant suppression"
+    );
+
+    // 4. Suppression (Drop)
+    mgr.drop_collection(collection)
+        .expect("drop collection failed");
+
+    // 5. Vérification : Elle ne doit plus exister physiquement
+    assert!(
+        !col_path.exists(),
+        "Le dossier collection doit avoir disparu"
+    );
+
+    // 6. Vérification CRITIQUE : Elle ne doit plus être dans _system.json
+    let content_after = fs::read_to_string(&sys_path).expect("read _system.json after");
+    let sys_json_after: Value =
+        serde_json::from_str(&content_after).expect("parse _system.json after");
+
+    assert!(
+        sys_json_after
+            .pointer(&format!("/collections/{}", collection))
+            .is_none(),
+        "La collection DOIT être retirée de _system.json après suppression"
+    );
+}
+
+#[test]
+fn test_system_index_strict_conformance() {
+    // 1. Initialisation
+    let env = init_test_env();
+    let cfg = &env.cfg;
+    let space = TEST_SPACE;
+    let db = TEST_DB;
+
+    // --- DIAGNOSTIC DU SCHÉMA COPIÉ ---
+    // On vérifie ce qui a été réellement copié dans le dossier temporaire du test
+    let schema_path = cfg
+        .db_schemas_root(space, db)
+        .join("v1/db/index.schema.json");
+
+    assert!(
+        schema_path.exists(),
+        "❌ Le fichier index.schema.json n'a pas été copié !"
+    );
+
+    let schema_content = fs::read_to_string(&schema_path).expect("Lecture schéma échouée");
+
+    // On vérifie la présence de la clé magique qui active x_compute
+    if !schema_content.contains("base.schema.json") {
+        println!("🔥 CONTENU DU SCHÉMA INCORRECT :\n{}", schema_content);
+        panic!("❌ Le fichier index.schema.json copié est OBSOLÈTE ! Il manque le 'allOf' vers base.schema.json. Vérifiez vos dossiers sources (schemas/v1).");
+    }
+    // ----------------------------------
+
+    // 2. Lecture du fichier généré
+    let sys_path = cfg.db_root(space, db).join("_system.json");
+    assert!(
+        sys_path.exists(),
+        "Le fichier _system.json doit exister physiquement"
+    );
+
+    let content = fs::read_to_string(&sys_path).expect("Lecture impossible de _system.json");
+    let doc: Value = serde_json::from_str(&content).expect("JSON malformé");
+
+    // 3. Vérifications strictes
+    if doc.get("id").is_none() {
+        println!(
+            "📄 Contenu de _system.json généré :\n{}",
+            serde_json::to_string_pretty(&doc).unwrap()
+        );
+        panic!("❌ L'index système N'A PAS d'ID. Le moteur x_compute n'a pas fonctionné malgré un schéma présent.");
+    }
+
+    assert!(doc.get("createdAt").is_some(), "Manque createdAt");
+
+    let expected_schema = format!("db://{}/{}/schemas/v1/db/index.schema.json", space, db);
+    assert_eq!(doc.get("$schema"), Some(&json!(expected_schema)));
+
+    // 4. Validation finale
+    let registry = SchemaRegistry::from_db(cfg, space, db).expect("Chargement registre");
+    let validator = SchemaValidator::compile_with_registry(&expected_schema, &registry)
+        .expect("Compilation validateur");
+
+    if let Err(e) = validator.validate(&doc) {
+        panic!("🚨 Validation finale échouée : {}", e);
+    }
+}
