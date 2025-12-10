@@ -5,53 +5,76 @@ description = "Plateforme d'Ingénierie Multi-Domaines à Interface IA Native"
 authors = ["GenAptitude Team"]
 license = "MIT"
 edition = "2021"
-repository = ""
-
-
-[lib]
-name = "genaptitude" # ← ou ton nom de package
-path = "src/lib.rs"
-
-[dev-dependencies]
-
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-anyhow = "1"
+# --- Cœur Tauri ---
 tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2.0.0"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+
+# --- Sérialisation & Données ---
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = { version = "2.0.1", features = ["serde"] }
+
+# --- Validation & Traitement ---
+regex = "1.10" # <--- AJOUTÉ (Requis par schema/validator.rs)
+
+# --- Asynchrone & Runtime ---
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+
+# --- Utilitaires Système & Fichiers ---
+anyhow = "1.0"
+thiserror = "2.0"
 dotenvy = "0.15"
 walkdir = "2"
 pathdiff = "0.2"
 url = "2.5"
-chrono = { version = "0.4", features = ["clock"] }
-uuid = { version = "1", features = ["v4"] }
+# Requis pour l'embarquement des schémas (file_storage.rs)
+include_dir = "0.7"
+
+# --- Logs & Traçabilité ---
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = "0.2"
+
+# --- Cryptographie & Temps ---
 sha2 = "0.10"
 hex = "0.4"
-tokio = { version = "1.x", features = ["full"] }
-thiserror = "2.0.17"
-# CORRECTION ICI : Activation de la feature "serde" pour bincode 2
-bincode = { version = "2.0.1", features = ["serde"] }
-dirs = "6.0.0"
-jsonschema = "0.37.2"
-tempfile = "3.10"
-sqlparser = "0.59.0"
-regex = "1"
-reqwest = { version = "0.12.24", features = ["json"] }
-async-trait = "0.1"
+uuid = { version = "1.0", features = ["v4"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+rand = "0.9.2"
+
+# --- MOTEUR IA & NLP (Les manquants) ---
+# Requis pour ai/llm/client.rs
+reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
+# Requis pour ai/nlp/splitting.rs
+text-splitter = "0.28.0"
+# Requis pour ai/nlp/tokenizers.rs
 tiktoken-rs = "0.9.1"
-text-splitter = { version = "0.28.0", features = ["markdown"] }
+
+# --- BASE DE DONNÉES & QUERY (Les manquants) ---
+# Requis pour json_db/query/sql.rs
+sqlparser = { version = "0.60.0", features = ["serde"] }
+
+# --- GÉNÉRATION DE CODE ---
+# Requis pour code_generator/templates (Tera)
 tera = "1.19"
-include_dir = "0.7"
 
+# --- GÉNÉTIQUE & OPTIMISATION ---
+# Requis pour genetics/engine.rs (Parallélisme)
+rayon = "1.10"
 
-[features]
-# Utilisé pour les builds prod quand aucun dev server n'est défini
-custom-protocol = ["tauri/custom-protocol"]
+# --- MOTEUR DE PLUGINS (WASM) ---
+wasmtime = "39.0.1"
+
+tempfile = "3.10"
+
+# ==========================================
+# DÉPENDANCES DE DÉVELOPPEMENT (Tests)
+# ==========================================
+[dev-dependencies]
+tempfile = "3.10" # <--- AJOUTÉ (Requis par test_utils.rs)

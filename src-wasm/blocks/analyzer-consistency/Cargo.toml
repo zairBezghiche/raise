@@ -1,0 +1,16 @@
+[package]
+name = "genaptitude-block-consistency"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# "cdylib" est indispensable pour générer un .wasm chargeable dynamiquement
+crate-type = ["cdylib"]
+
+[dependencies]
+# On lie notre noyau (pour avoir accès aux structures CognitiveModel, etc.)
+genaptitude-core-api = { path = "../../core-api" }
+
+# On récupère les dépendances définies dans le workspace racine
+serde = { workspace = true }
+serde_json = { workspace = true }

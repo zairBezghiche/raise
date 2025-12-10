@@ -5,3 +5,4 @@ pub mod model_engine;
 
 pub mod ai;
 pub mod code_generator;
+pub mod plugins;

@@ -5,7 +5,10 @@ use std::env;
 use std::path::PathBuf;
 use tauri::Manager;
 
-use genaptitude::commands::{ai_commands, blockchain_commands, json_db_commands, model_commands};
+use genaptitude::commands::{
+    ai_commands, blockchain_commands, codegen_commands, cognitive_commands, genetics_commands,
+    json_db_commands, model_commands,
+};
 use genaptitude::json_db::storage::{JsonDbConfig, StorageEngine};
 
 fn main() {
@@ -36,27 +39,22 @@ fn main() {
             // --- GESTION DATABASE (NOUVEAU) ---
             json_db_commands::jsondb_create_db,
             json_db_commands::jsondb_drop_db,
-            
             // --- GESTION COLLECTIONS ---
             json_db_commands::jsondb_create_collection,
             json_db_commands::jsondb_list_collections,
             json_db_commands::jsondb_drop_collection, // (Ajouté)
-
             // --- GESTION INDEXES (NOUVEAU) ---
             json_db_commands::jsondb_create_index,
             json_db_commands::jsondb_drop_index,
-
             // --- CRUD DOCUMENTS ---
             json_db_commands::jsondb_insert_document,
             json_db_commands::jsondb_get_document,
             json_db_commands::jsondb_update_document,
             json_db_commands::jsondb_delete_document,
             json_db_commands::jsondb_list_all,
-
             // --- REQUÊTES ---
             json_db_commands::jsondb_execute_query,
             json_db_commands::jsondb_execute_sql,
-
             // --- AUTRES COMMANDES EXISTANTES ---
             model_commands::load_project_model,
             ai_commands::ai_chat,
@@ -70,7 +68,13 @@ fn main() {
             blockchain_commands::vpn_list_peers,
             blockchain_commands::vpn_add_peer,
             blockchain_commands::vpn_ping_peer,
-            blockchain_commands::vpn_check_installation
+            blockchain_commands::vpn_check_installation,
+            // --- OPTIMISATION GÉNÉTIQUE ---
+            genetics_commands::run_genetic_optimization,
+            // --- GÉNÉRATEUR DE CODE ---
+            codegen_commands::generate_source_code,
+            // BLOCS COGNITIFS (WASM) ---
+            cognitive_commands::run_consistency_analysis
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

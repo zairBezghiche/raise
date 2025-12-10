@@ -1,0 +1,13 @@
+[package]
+name = "ga_wasm"
+version = "0.1.0"
+edition = "2021"
+description = "GenAptitude — module WASM (placeholder)"
+license = "MIT"
+authors = ["GenAptitude Team"]
+
+[lib]
+# cdylib pour générer un .wasm, rlib utile pour tests natifs
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
