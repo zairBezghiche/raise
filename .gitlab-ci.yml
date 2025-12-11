@@ -85,35 +85,38 @@ wasm:build:
   stage: build
   image: rust:1
   rules:
-    - exists: [ "src-wasm/Cargo.toml" ]
+    - exists: [ "src-wasm/blocks/analyzer-consistency/Cargo.toml" ]
   cache:
     key: "wasm-${CI_COMMIT_REF_SLUG}"
     paths: [ ".cargo/", ".rustup/", "target/" ]
     policy: pull-push
   before_script:
-    - rustup target add wasm32-unknown-unknown wasm32-wasip1
+    - rustup target add wasm32-unknown-unknown
   script:
-    - cargo build --manifest-path src-wasm/Cargo.toml --target wasm32-unknown-unknown --release
-    - cargo build --manifest-path src-wasm/Cargo.toml --target wasm32-wasip1         --release
+    # On compile depuis la racine (-p cible le package défini dans src-wasm/blocks/*/Cargo.toml)
+    # Assurez-vous que le nom 'genaptitude-block-consistency' correspond à celui dans le Cargo.toml du bloc
+    - cargo build --release --target wasm32-unknown-unknown -p genaptitude-block-consistency
+    
+    # Préparation des artefacts (renommage pour clarté)
+    - mkdir -p wasm-dist
+    - cp target/wasm32-unknown-unknown/release/*.wasm wasm-dist/
   artifacts:
     paths:
-      - target/wasm32-unknown-unknown/release/*.wasm
-      - target/wasm32-wasip1/release/*.wasm
+      - wasm-dist/*.wasm
     expire_in: 1 week
 
-# Tests Rust (WASM)
+# Tests Rust (Core + Blocks + Backend)
 rust:test:
   stage: test
   image: rust:1
-  needs: ["wasm:build"]
-  rules:
-    - exists: [ "src-wasm/Cargo.toml" ]
+  needs: [] # Pas besoin d'attendre le build WASM pour lancer les tests unitaires
   cache:
     key: "test-${CI_COMMIT_REF_SLUG}"
     paths: [ ".cargo/", ".rustup/", "target/" ]
     policy: pull-push
   script:
-    - cargo test --manifest-path src-wasm/Cargo.toml --all-features --no-fail-fast
+    # On teste tout le workspace d'un coup
+    - cargo test --workspace --all-features --no-fail-fast
 
 # SBOM (CycloneDX Rust + JS + bundles)
 sbom:generate:
