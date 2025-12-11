@@ -188,11 +188,10 @@ fn apply_xc_rec(
             for (key, sub_schema) in props {
                 let mut created_temp = false;
 
-                if !obj.contains_key(key)
-                    && needs_computation(sub_schema) {
-                        obj.insert(key.clone(), Value::Null);
-                        created_temp = true;
-                    }
+                if !obj.contains_key(key) && needs_computation(sub_schema) {
+                    obj.insert(key.clone(), Value::Null);
+                    created_temp = true;
+                }
 
                 if let Some(sub_node) = obj.get_mut(key) {
                     path.push(key.clone());
@@ -353,7 +352,8 @@ fn evaluate_plan(
             "lt" => op_compare(&evaluated_args, |a, b| a < b),
             "lte" | "le" => op_compare(&evaluated_args, |a, b| a <= b),
             "not" => {
-                let val = evaluated_args.first()
+                let val = evaluated_args
+                    .first()
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 Ok(Value::Bool(!val))
