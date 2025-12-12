@@ -1698,6 +1698,7 @@ dependencies = [
  "async-trait",
  "bincode",
  "chrono",
+ "dirs",
  "dotenvy",
  "hex",
  "include_dir",

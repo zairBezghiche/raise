@@ -6,6 +6,7 @@ export function NodeLibrary() {
     { id: 'action', label: 'Action Script', icon: '⚙️', color: 'var(--color-primary)' },
     { id: 'condition', label: 'Condition If/Else', icon: '🔀', color: 'var(--color-accent)' },
     { id: 'api', label: 'Appel API', icon: '🌐', color: 'var(--color-info)' },
+    { id: 'gate_hitl', label: 'Validation Humaine', icon: '🛡️', color: 'var(--color-warning)' },
     { id: 'end', label: 'Terminaison', icon: '🛑', color: 'var(--color-error)' },
   ];
 

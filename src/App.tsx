@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import './styles/globals.css';
 
 // --- TYPES & UTILS ---
@@ -21,20 +22,31 @@ import { BlockchainToast } from '@/components/blockchain/BlockchainToast';
 import CognitiveAnalysis from '@/components/cognitive/CognitiveAnalysis';
 import AssuranceDashboard from '@/components/assurance/AssuranceDashboard';
 import MBAIEView from '@/components/ai-chat/MBAIEView';
-// CORRECTION 1 : Import par défaut (sans les accolades)
+
 import SettingsPage from '@/components/settings/SettingsPage';
+
+import { JsonDbTester } from '@/components/JsonDbTester';
+import CognitiveTester from '@/components/CognitiveTester';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [showBlockchainToast, setShowBlockchainToast] = useState(false);
-
+  const [sysInfo, setSysInfo] = useState<any>(null);
   const { project, setProject } = useModelStore();
-
-  // CORRECTION 2 : Suppression de la ligne inutilisée 'const theme = ...'
 
   // --- BOOTSTRAP ---
   useEffect(() => {
     console.log('🚀 Démarrage de GenAptitude (Frontend + Tauri)...');
+    // AJOUT 2 : Appel à la commande Rust
+    // 'get_app_info' doit correspondre exactement au nom de la fonction dans utils_commands.rs
+    invoke('get_app_info')
+      .then((response) => {
+        console.log('✅ Réponse du Backend Rust :', response);
+        setSysInfo(response); // On stocke la réponse
+      })
+      .catch((error) => {
+        console.error('❌ Erreur Backend Rust :', error);
+      });
     const timer = setTimeout(() => {
       console.log('📦 Chargement du projet Mock (Démo)...');
       setProject(MOCK_PROJECT);
@@ -57,7 +69,10 @@ export default function App() {
         return <WorkflowCanvas />;
       case 'settings':
         return <SettingsPage />; // Utilisation du composant importé
-
+      case 'admin-db':
+        return <JsonDbTester />;
+      case 'cognitive-tester':
+        return <CognitiveTester />;
       case 'ai':
         return <MBAIEView />;
 
@@ -139,6 +154,37 @@ export default function App() {
                 desc="Backend Rust opérationnel"
               />
             </div>
+            {/* Affichage des infos système Rust --- */}
+            {sysInfo && (
+              <div
+                style={{
+                  marginTop: 'var(--spacing-8)',
+                  padding: 'var(--spacing-4)',
+                  backgroundColor: 'var(--bg-panel)',
+                  border: '1px solid var(--color-success)', // Bordure verte pour dire "Connecté"
+                  borderRadius: 'var(--radius-lg)',
+                  color: 'var(--text-muted)',
+                  fontSize: 'var(--font-size-sm)',
+                  fontFamily: 'var(--font-family-mono)',
+                }}
+              >
+                <h3 style={{ marginTop: 0, color: 'var(--color-success)', fontSize: '1rem' }}>
+                  ✅ Backend Rust Connecté
+                </h3>
+                <div>
+                  <strong>Version :</strong> v{sysInfo.app_version}
+                </div>
+                <div>
+                  <strong>Environnement :</strong> {sysInfo.env_mode}
+                </div>
+                <div>
+                  <strong>Base de Données :</strong> {sysInfo.database_path}
+                </div>
+                <div>
+                  <strong>API :</strong> {sysInfo.api_status}
+                </div>
+              </div>
+            )}
             <div style={{ marginTop: 'var(--spacing-8)' }}>
               <button
                 onClick={() => setCurrentPage('settings')}
@@ -168,7 +214,7 @@ export default function App() {
       case 'codegen':
         return 'Génération de Code';
       case 'ai':
-        return 'Assistant IA';
+        return 'MBAIE';
       case 'diagram':
         return 'Éditeur de Diagrammes';
       case 'workflow':
@@ -181,6 +227,11 @@ export default function App() {
         return 'Product Assurance & XAI';
       case 'settings':
         return 'Paramètres Système';
+      case 'admin-db':
+        return 'Gestion de la DB';
+
+      case 'cognitive-tester':
+        return 'Diagnostic Cognitif (WASM)';
       default:
         return 'GenAptitude';
     }

@@ -1,173 +1,125 @@
-### Fichier : `src-tauri/README.md`
-
-````markdown
 # 🦀 GenAptitude - Backend Rust (Tauri Core)
 
 Le cœur de GenAptitude est une application **Rust** haute performance utilisant le framework **Tauri v2**.
-Il agit comme un serveur local sécurisé gérant la logique métier lourde, le stockage des données, l'intelligence artificielle et l'exécution de plugins.
+Il agit comme un serveur local souverain gérant la logique métier lourde, le stockage des données, l'intelligence artificielle et l'orchestration des processus.
 
 ## 🏗 Architecture Modulaire
 
-Le backend est découpé en modules distincts (Crates internes ou modules) pour une séparation stricte des responsabilités.
+Le backend est structuré en modules découplés (Domain Driven Design) :
 
 ```text
 src-tauri/src/
-├── ai/                 # 🤖 Noyau IA (LLM, NLP, RAG, Agents)
-├── blockchain/         # 🔗 Connecteurs Infrastructure (Hyperledger Fabric, WireGuard)
-├── code_generator/     # ⚡ Usine Logicielle (Moteur de templates Tera)
-├── commands/           # 🔌 Couche d'exposition IPC (Commandes Tauri)
+├── ai/                 # 🤖 Cerveau Neuro-Symbolique (Agents, RAG, LLM Client)
+├── blockchain/         # 🔗 Infrastructure de Confiance (Fabric, Innernet VPN)
+├── code_generator/     # ⚡ Usine Logicielle Hybride (Templates Tera + Injection IA)
+├── commands/           # 🔌 Interface API (IPC Tauri) exposée au Frontend
 ├── genetics/           # 🧬 Moteur d'Optimisation (Algorithmes Évolutionnaires)
-├── json_db/            # 🗄️ Base de Données NoSQL Native (Storage & Query)
-├── model_engine/       # 📚 Moteur Sémantique (Chargement Arcadia/Capella)
-├── plugins/            # 🧠 Hôte WASM (Wasmtime Runtime)
-├── lib.rs              # Point d'entrée de la librairie
-└── main.rs             # Point d'entrée de l'exécutable (Setup Tauri)
+├── json_db/            # 🗄️ SGBD NoSQL/Sémantique (Stockage, Index, SQL, ACID)
+├── model_engine/       # 📚 Moteur Sémantique (Loader Arcadia/Capella)
+├── plugins/            # 🧠 Hôte WASM (Exécution de règles dynamiques)
+├── traceability/       # 🛡️ Gouvernance (Audit, Conformité DO-178C/AI Act)
+├── utils/              # 🛠️ Fondations (Config, Logs, Erreurs)
+├── workflow_engine/    # 🔀 Orchestrateur Symbolique (Graphes de tâches, HITL)
+├── lib.rs              # Point d'entrée Librairie
+└── main.rs             # Point d'entrée Exécutable
 ```
-````
 
 ---
 
 ## 🧩 Détail des Modules
 
-### 1\. 🗄️ JSON-DB (Base de Données)
+### 1\. 🗄️ JSON-DB (Persistance)
 
-Moteur NoSQL orienté document, écrit en Rust pur.
+Un moteur de base de données transactionnel conçu pour l'ingénierie système.
 
-- **Storage** : Fichiers atomiques (`_system.json`, `collections/`).
-- **Fonctions** : Indexation (Hash/BTree), Schémas JSON stricts, Requêtes SQL (Subset).
-- **CLI** : Outil d'administration en ligne de commande (voir section dédiée plus bas).
+- **Sémantique** : Validation native **JSON-LD** et conformité aux schémas Arcadia.
+- **ACID** : Transactions atomiques avec journalisation (WAL).
+- **SQL** : Moteur de requête supportant les projections et filtres complexes.
 
-### 2\. 🤖 AI Kernel
+### 2\. 🤖 AI Kernel (Intelligence)
 
-Un orchestrateur d'intelligence artificielle local et cloud.
+Le cerveau "neuronal" du système.
 
-- **LLM** : Client abstrait pour OpenAI ou Ollama local.
-- **RAG** : Système de contexte vectoriel pour injecter la documentation technique.
-- **Agents** : Système multi-agents pour la spécialisation des tâches (Architecte, Reviewer).
+- **Dual Mode** : Route les requêtes vers le Local (Docker/Mistral) ou le Cloud (Gemini) selon la complexité.
+- **Agents** : `SystemAgent` pour la modélisation, `SoftwareAgent` pour le code.
+- **RAG** : Récupération de contexte vectoriel pour ancrer les réponses.
 
-### 3\. 🧠 Cognitive Host (WASM)
+### 3\. 🔀 Workflow Engine (Orchestration)
 
-Un environnement "Sandbox" sécurisé utilisant **Wasmtime**.
+Le cerveau "symbolique" du système.
 
-- **Rôle** : Charge dynamiquement des fichiers `.wasm` (situés dans `wasm-modules/`) pour exécuter des règles de validation métier sans recompiler le backend.
-- **Performance** : Exécution native proche du C/Rust.
+- **Déterministe** : Exécute des graphes de tâches définis statiquement.
+- **HITL (Human-in-the-loop)** : Gestion native des pauses pour validation humaine.
+- **State Machine** : Suivi rigoureux de l'état d'avancement.
 
-### 4\. 📚 Model Engine
+### 4\. 🛡️ Traceability (Assurance)
 
-Le chargeur sémantique pour les modèles d'ingénierie (Arcadia).
+Garantit que le modèle est conforme aux normes critiques.
 
-- **Fonction** : Lit les données brutes de la DB et construit un graphe d'objets typés (OA, SA, LA, PA, EPBS).
-- **Usage** : Sert de source de vérité pour le Frontend et les Générateurs.
+- **Impact Analysis** : Calcule la propagation d'un changement dans le graphe.
+- **Compliance** : Checkers automatiques pour **DO-178C**, **ISO-26262** et **EU AI Act**.
 
-### 5\. 🧬 Genetics Engine
+### 5\. 📚 Model Engine
 
-Module de calcul intensif (CPU Bound).
+Chargeur haute performance pour les modèles Arcadia.
 
-- **Fonction** : Exécute des algorithmes évolutionnaires pour explorer l'espace de conception.
-- **Processus** : Simulation de générations, mutations et sélections pour optimiser des critères (coût, performance).
-
-### 6\. ⚡ Code Generator
-
-Moteur de génération de code source.
-
-- **Techno** : Utilise le moteur de templates **Tera** (similaire à Jinja2).
-- **Sortie** : Génère du code Rust, Python ou C++ à partir du Modèle Système.
-
-### 7\. 🔗 Blockchain & Network
-
-- **WireGuard** : Monitoring de l'état du VPN et des pairs.
-- **Hyperledger** : Soumission et requête de transactions de traçabilité.
+- Hydrate les données JSON brutes en structures Rust fortement typées (`ProjectModel`).
+- Gère les 5 couches d'abstraction : OA, SA, LA, PA, EPBS.
 
 ---
 
-## 🛠 Administration JSON-DB (CLI)
+## 🛠 Administration & Outils (CLI)
 
-L'outil `jsondb_cli` permet d'administrer la base sans passer par l'interface graphique.
+Le projet inclut plusieurs binaires CLI pour l'administration et le débogage sans l'UI.
 
-### Commandes de Base
+| Outil            | Commande                     | Usage                                                     |
+| :--------------- | :--------------------------- | :-------------------------------------------------------- |
+| **JsonDB Admin** | `cargo run -p jsondb_cli`    | Création de bases, requêtes SQL, réparation d'index.      |
+| **AI Debugger**  | `cargo run -p ai_cli`        | Test du chat, classification d'intention, ping LLM.       |
+| **Validator**    | `cargo run -p validator_cli` | Vérification stricte d'un fichier JSON contre son schéma. |
 
-```bash
-# 1. Création d'une base (Structure + Schémas standards)
-cargo run -p jsondb_cli -- --space un2 --db _system create-db
-
-# 2. Suppression d'une base (Irréversible)
-cargo run -p jsondb_cli -- --space un2 --db _system drop-db --force
-```
-
-### Gestion des Données
+### Exemples
 
 ```bash
-# Insertion (Validation stricte selon le schéma)
-cargo run -p jsondb_cli -- --space un2 --db _system insert \
-  --collection articles \
-  --data '{ "handle": "test-1", "slug": "test-1", "title": "Titre", "displayName": "Display", "status": "draft" }'
-
-# Lecture
-cargo run -p jsondb_cli -- --space un2 --db _system list --collection articles
-```
-
-### Indexation & Performance
-
-```bash
-# Créer un index (Hash) sur un champ
-cargo run -p jsondb_cli -- --space un2 --db _system create-index \
-  --collection articles --field handle --kind hash
-
-# Supprimer un index
-cargo run -p jsondb_cli -- --space un2 --db _system drop-index \
-  --collection articles --field handle
-```
-
-### Requêtes SQL
-
-Le moteur supporte un sous-ensemble du SQL pour le requêtage.
-
-```bash
+# Requête SQL sur la base locale
 cargo run -p jsondb_cli -- --space un2 --db _system sql \
-  --query "SELECT displayName, handle FROM articles WHERE handle = 'test-1'"
-```
+  --query "SELECT name, kind FROM actors WHERE kind = 'human'"
 
----
+# Test de compréhension IA
+cargo run -p ai_cli -- classify "Crée une fonction Démarrer"
+```
 
 ## ✅ Tests et Qualité
 
-Le backend est couvert par des tests unitaires et des suites d'intégration.
-
-### Lancer les tests
+La qualité est assurée par une batterie de tests unitaires et d'intégration.
 
 ```bash
-# 1. Lancer tous les tests (Unitaires + Intégration)
-cargo test
+# 1. Tester les fondations (Utils)
+cargo test utils::
 
-# 2. Lancer uniquement la suite JSON-DB
+# 2. Tester la base de données (Intégration)
 cargo test --test json_db_suite
 
-# 3. Lancer uniquement les tests du moteur IA
-cargo test ai::
+# 3. Tester le moteur de workflow
+cargo test workflow_engine::
+
+# 4. Tester tout le projet (Attention : peut être long)
+cargo test
 ```
 
 ### Vérification du code
 
 ```bash
-# Vérification rapide de compilation
+# Compilation rapide
 cargo check
 
-# Analyse statique (Linter)
-cargo clippy
+# Linter strict
+cargo clippy -- -D warnings
 ```
 
----
+```
 
-## 🚀 Développement
-
-Pour ajouter une nouvelle fonctionnalité :
-
-1.  Créer la logique métier dans son module dédié (ex: `src/mon_module/mod.rs`).
-2.  Créer une commande Tauri asynchrone dans `src/commands/mon_module_commands.rs`.
-3.  Enregistrer la commande dans `src/commands/mod.rs`.
-4.  Exposer la commande dans `src/main.rs` via `.invoke_handler()`.
-
-<!-- end list -->
+```
 
 ```
 

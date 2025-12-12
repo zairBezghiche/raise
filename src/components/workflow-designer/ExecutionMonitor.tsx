@@ -1,46 +1,11 @@
-import { useState } from 'react';
-
-interface LogEntry {
-  id: number;
-  timestamp: string;
-  message: string;
-  type: 'info' | 'error' | 'success';
+interface ExecutionMonitorProps {
+  logs: string[];
+  status: string;
+  onStart: () => void;
+  isRunning: boolean;
 }
 
-export function ExecutionMonitor() {
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
-
-  // Simulation de logs
-  const runWorkflow = () => {
-    setIsRunning(true);
-    setLogs([]);
-
-    const steps = [
-      { msg: 'Initialisation du workflow...', type: 'info' },
-      { msg: "Chargement des variables d'environnement...", type: 'info' },
-      { msg: 'Exécution du script : build_project.sh', type: 'info' },
-      { msg: 'Compilation réussie (Rust 1.75)', type: 'success' },
-      { msg: 'Déploiement sur cluster K8s...', type: 'info' },
-      { msg: 'Workflow terminé avec succès.', type: 'success' },
-    ];
-
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setLogs((prev) => [
-          ...prev,
-          {
-            id: Date.now(),
-            timestamp: new Date().toLocaleTimeString(),
-            message: step.msg,
-            type: step.type as any,
-          },
-        ]);
-        if (index === steps.length - 1) setIsRunning(false);
-      }, (index + 1) * 800);
-    });
-  };
-
+export function ExecutionMonitor({ logs, status, onStart, isRunning }: ExecutionMonitorProps) {
   return (
     <div
       style={{
@@ -49,6 +14,7 @@ export function ExecutionMonitor() {
         borderTop: '1px solid var(--border-color)',
         display: 'flex',
         flexDirection: 'column',
+        zIndex: 20,
       }}
     >
       <header
@@ -58,23 +24,17 @@ export function ExecutionMonitor() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          backgroundColor: 'var(--color-gray-50)',
+          backgroundColor: 'var(--bg-app)',
         }}
       >
-        <span
-          style={{
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 'bold',
-            color: 'var(--text-muted)',
-          }}
-        >
-          CONSOLE D'EXÉCUTION
+        <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 'bold' }}>
+          🖥️ Console d'exécution ({status})
         </span>
         <button
-          onClick={runWorkflow}
-          disabled={isRunning}
+          onClick={onStart}
+          disabled={isRunning || status === 'PAUSED'}
           style={{
-            padding: '4px 12px',
+            padding: 'var(--spacing-2) var(--spacing-4)',
             backgroundColor: isRunning ? 'var(--color-gray-400)' : 'var(--color-success)',
             color: '#fff',
             border: 'none',
@@ -84,7 +44,7 @@ export function ExecutionMonitor() {
             fontWeight: 'bold',
           }}
         >
-          {isRunning ? 'Exécution...' : '▶ Lancer'}
+          {isRunning ? 'En cours...' : '▶ Lancer le Workflow'}
         </button>
       </header>
 
@@ -95,28 +55,25 @@ export function ExecutionMonitor() {
           padding: 'var(--spacing-2)',
           fontFamily: 'var(--font-family-mono)',
           fontSize: 'var(--font-size-xs)',
-          backgroundColor: 'var(--bg-app)', // Fond sombre en dark mode pour l'aspect terminal
+          backgroundColor: '#1e1e1e', // Fond terminal
+          color: '#d4d4d4',
+          display: 'flex',
+          flexDirection: 'column-reverse', // Auto-scroll vers le bas (les derniers logs en bas)
         }}
       >
-        {logs.length === 0 && !isRunning && (
-          <div style={{ color: 'var(--text-muted)', padding: 'var(--spacing-2)' }}>Prêt.</div>
-        )}
+        {logs.length === 0 && <span style={{ opacity: 0.5 }}>En attente...</span>}
 
-        {logs.map((log) => (
-          <div key={log.id} style={{ marginBottom: '4px', display: 'flex', gap: '10px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>[{log.timestamp}]</span>
-            <span
-              style={{
-                color:
-                  log.type === 'error'
-                    ? 'var(--color-error)'
-                    : log.type === 'success'
-                    ? 'var(--color-success)'
-                    : 'var(--text-main)',
-              }}
-            >
-              {log.message}
-            </span>
+        {/* On map les logs reçus de Rust */}
+        {[...logs].reverse().map((log, i) => (
+          <div
+            key={i}
+            style={{
+              borderLeft: '2px solid var(--color-primary)',
+              paddingLeft: '8px',
+              marginBottom: '4px',
+            }}
+          >
+            {log}
           </div>
         ))}
       </div>

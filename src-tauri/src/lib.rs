@@ -9,10 +9,12 @@ pub mod plugins;
 
 pub mod traceability;
 
+pub mod utils;
+pub mod workflow_engine;
+
 use crate::model_engine::types::ProjectModel;
 use std::sync::Mutex;
 
-// Cette structure rend l'état accessible partout via crate::AppState
 pub struct AppState {
     pub model: Mutex<ProjectModel>,
 }

@@ -17,9 +17,11 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
     { id: 'cognitive', label: 'Moteur Cognitif', icon: '🧠' },
     { id: 'codegen', label: 'Génération de Code', icon: '⚙️' },
     { id: 'assurance', label: 'Qualité & XAI', icon: '🛡️' },
-    // RENOMMAGE ICI : Assistant IA -> MBAIE
+
     { id: 'ai', label: 'MBAIE (AI Engineering)', icon: '🤖' },
     { id: 'blockchain', label: 'Blockchain', icon: '🔗' },
+    { id: 'cognitive-tester', label: 'Testeur WASM', icon: '🧪' },
+    { id: 'admin-db', label: 'Base de Données', icon: '🗄️' },
   ];
 
   const bottomMenuItems = [{ id: 'settings', label: 'Paramètres', icon: '⚙️' }];
