@@ -7,7 +7,7 @@ import { ElementInspector } from './ElementInspector';
 
 export default function CapellaViewer() {
   const [activeLayer, setActiveLayer] = useState('la');
-  const [selectedElement, setSelectedElement] = useState<any>(null);
+  const [selectedElement] = useState<any>(null);
 
   // Layout :
   // [Barre Layer] [Navigateur (20%)] [Diagramme (60%)] [Inspecteur (20%)]
