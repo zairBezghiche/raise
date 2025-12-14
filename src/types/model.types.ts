@@ -9,8 +9,8 @@ export interface ArcadiaElement {
   name: string | I18nString;
   type?: string; // URI complète (ex: https://...#OperationalActor)
   description?: string;
-  // Propriétés dynamiques (PVMT, attributs métier)
-  [key: string]: any;
+  // CORRECTION : Propriétés dynamiques typées en 'unknown' (plus sûr que 'any')
+  [key: string]: unknown;
 }
 
 // --- Couches (Layers) ---
@@ -83,6 +83,6 @@ export interface ProjectModel {
 
   meta?: ProjectMeta;
 
-  // Flexibilité pour extensions futures
-  [key: string]: any;
+  // CORRECTION : Flexibilité pour extensions futures avec 'unknown'
+  [key: string]: unknown;
 }

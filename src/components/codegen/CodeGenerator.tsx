@@ -24,7 +24,8 @@ export default function CodeGenerator() {
     try {
       const result = await codegenService.generateCode(language, currentProject);
       setCode(result);
-    } catch (err) {
+    } catch (err: unknown) {
+      // Correction : Typage unknown pour l'erreur
       setError(String(err));
     } finally {
       setLoading(false);
@@ -126,6 +127,14 @@ export default function CodeGenerator() {
     },
   };
 
+  // Helper pour afficher l'ID sans utiliser 'any'
+  const getProjectId = () => {
+    if (!currentProject) return 'Aucun';
+    // On cast en Record générique pour accéder à .id
+    const p = currentProject as Record<string, unknown>;
+    return typeof p.id === 'string' ? p.id : 'Inconnu';
+  };
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -192,7 +201,7 @@ export default function CodeGenerator() {
 
       <div style={styles.status}>
         Moteur de templates : <strong>Tera</strong> • Modèle actif :{' '}
-        <strong>{currentProject ? (currentProject as any).id || 'Inconnu' : 'Aucun'}</strong>
+        <strong>{getProjectId()}</strong>
       </div>
     </div>
   );

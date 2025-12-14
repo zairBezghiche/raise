@@ -5,9 +5,18 @@ import { ModelNavigator } from './ModelNavigator';
 import { DiagramRenderer } from './DiagramRenderer';
 import { ElementInspector } from './ElementInspector';
 
+// Interface pour typer l'élément sélectionné
+interface ViewerElement {
+  name: string;
+  type: string;
+  // On autorise d'autres propriétés inconnues
+  [key: string]: unknown;
+}
+
 export default function CapellaViewer() {
   const [activeLayer, setActiveLayer] = useState('la');
-  const [selectedElement] = useState<any>(null);
+  // Correction : Remplacement de <any> par un type explicite ou null
+  const [selectedElement] = useState<ViewerElement | null>(null);
 
   // Layout :
   // [Barre Layer] [Navigateur (20%)] [Diagramme (60%)] [Inspecteur (20%)]

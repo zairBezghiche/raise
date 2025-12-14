@@ -28,6 +28,7 @@ export function isUuid(str: string): boolean {
 /**
  * Vérifie si un objet possède des clés (non vide).
  */
-export function hasProperties(obj: Record<string, any>): boolean {
+// Correction : Utilisation de 'unknown' au lieu de 'any'
+export function hasProperties(obj: Record<string, unknown>): boolean {
   return obj && Object.keys(obj).length > 0;
 }

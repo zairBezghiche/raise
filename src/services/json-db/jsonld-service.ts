@@ -25,7 +25,12 @@ export class JsonLdService {
     return this.contexts.get(name);
   }
 
-  expandDocument<T = any>(document: T, contextName: string): T & { '@context': any } {
+  // Correction : On force T à être un objet pour pouvoir le spreader (...)
+  // On type le retour précisément
+  expandDocument<T extends Record<string, unknown>>(
+    document: T,
+    contextName: string,
+  ): T & { '@context': ContextDefinition | Record<string, never> } {
     const context = this.getContext(contextName);
     if (!context) {
       console.warn(`[JsonLdService] Context not found: ${contextName}`);
@@ -37,8 +42,10 @@ export class JsonLdService {
     };
   }
 
-  compactDocument<T = any>(document: any): T {
-    if (!document) return document;
+  // Correction : Entrée typée comme un objet générique, sortie typée T
+  compactDocument<T = Record<string, unknown>>(document: Record<string, unknown> | null): T | null {
+    if (!document) return null;
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { '@context': _, ...rest } = document;
     return rest as T;

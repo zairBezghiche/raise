@@ -5,34 +5,32 @@ import { modelService } from '@/services/model-service';
 import { useModelStore } from '@/store/model-store';
 import { InputBar } from '@/components/ai-chat/InputBar';
 
+// Type pour les documents JSON génériques
+type JsonDoc = Record<string, unknown>;
+type TabType = 'write' | 'search' | 'admin';
+
 export function JsonDbTester() {
-  // --- État UI ---
   const [logs, setLogs] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'write' | 'search' | 'admin'>('admin');
+  const [activeTab, setActiveTab] = useState<TabType>('admin');
 
-  // --- État Données ---
   const [targetCollection, setTargetCollection] = useState('actors');
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<JsonDoc[]>([]);
 
-  // --- État Insertion Manuelle ---
   const [jsonInput, setJsonInput] = useState<string>(
     JSON.stringify(
       {
-        '@context': {
-          oa: 'https://genaptitude.io/ontology/arcadia/oa#',
-        },
+        '@context': { oa: 'https://genaptitude.io/ontology/arcadia/oa#' },
         '@type': 'oa:OperationalActor',
         name: 'Opérateur de Drone',
-        description: 'Personne chargée du pilotage manuel du drone via la station sol',
+        description: 'Personne chargée du pilotage.',
       },
       null,
       2,
     ),
   );
 
-  // --- État Recherche ---
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<JsonDoc[]>([]);
   const [searchStats, setSearchStats] = useState<string>('');
 
   const setProject = useModelStore((s) => s.setProject);
@@ -40,58 +38,49 @@ export function JsonDbTester() {
   const addLog = (msg: string) =>
     setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
-  // --- HELPER : Récupération des données (Logic Only) ---
-  const fetchCollectionData = useCallback(async (colName: string) => {
+  const fetchCollectionData = useCallback(async (colName: string): Promise<JsonDoc[]> => {
     try {
       const docs = await collectionService.listAll(colName);
-      return Array.isArray(docs) ? docs.reverse() : [];
-    } catch (e) {
+      return Array.isArray(docs) ? (docs as JsonDoc[]).reverse() : [];
+    } catch {
       return [];
     }
   }, []);
 
-  // --- 1. CHARGEMENT AUTOMATIQUE (Sécurisé) ---
   useEffect(() => {
     let isMounted = true;
-
     const load = async () => {
       const data = await fetchCollectionData(targetCollection);
-      if (isMounted) {
-        setItems(data);
-      }
+      if (isMounted) setItems(data);
     };
-
     load();
-
     return () => {
       isMounted = false;
     };
   }, [targetCollection, fetchCollectionData]);
 
-  // --- 2. ACTION MANUELLE (Pour les boutons) ---
   const handleRefreshManual = async () => {
     const data = await fetchCollectionData(targetCollection);
     setItems(data);
   };
 
-  // --- ACTIONS ADMIN ---
   const handleInitDb = async () => {
     try {
       await collectionService.createDb();
-      addLog('✅ Base de données initialisée (un2/_system).');
-    } catch (e: any) {
-      addLog(`❌ Erreur Init DB: ${e}`);
+      addLog('✅ Base de données initialisée.');
+    } catch (e: unknown) {
+      addLog(`❌ Erreur Init DB: ${String(e)}`);
     }
   };
 
   const handleDropDb = async () => {
-    if (!confirm('Êtes-vous sûr de vouloir tout supprimer ?')) return;
+    if (!confirm('Êtes-vous sûr ?')) return;
     try {
       await collectionService.dropDb();
       addLog('🗑️ Base de données supprimée.');
       setItems([]);
-    } catch (e: any) {
-      addLog(`❌ Erreur Drop DB: ${e}`);
+    } catch (e: unknown) {
+      addLog(`❌ Erreur Drop DB: ${String(e)}`);
     }
   };
 
@@ -99,34 +88,31 @@ export function JsonDbTester() {
     try {
       await collectionService.createIndex(targetCollection, 'name', 'hash');
       addLog(`✅ Index Hash créé sur ${targetCollection}.name`);
-    } catch (e: any) {
-      addLog(`❌ Erreur Index: ${e}`);
+    } catch (e: unknown) {
+      addLog(`❌ Erreur Index: ${String(e)}`);
     }
   };
 
-  // --- ACTIONS COLLECTION ---
   const handleCreateCollection = async () => {
     try {
       await collectionService.createCollection(targetCollection);
       addLog(`✅ Collection '${targetCollection}' prête.`);
       await handleRefreshManual();
-    } catch (e: any) {
-      addLog(`❌ Erreur création collection: ${e}`);
+    } catch (e: unknown) {
+      addLog(`❌ Erreur création collection: ${String(e)}`);
     }
   };
 
   const handleInsertJson = async () => {
-    if (!targetCollection.trim()) {
-      addLog('❌ Erreur: Nom de collection vide !');
-      return;
-    }
+    if (!targetCollection.trim()) return;
     try {
       const doc = JSON.parse(jsonInput);
       const saved = await collectionService.insertDocument(targetCollection, doc);
-      addLog(`✅ Document inséré (ID: ${saved.id})`);
+      const id = (saved as { id?: string }).id || '?';
+      addLog(`✅ Document inséré (ID: ${id})`);
       await handleRefreshManual();
-    } catch (e: any) {
-      addLog(`❌ Erreur insertion: ${e}`);
+    } catch (e: unknown) {
+      addLog(`❌ Erreur insertion: ${String(e)}`);
     }
   };
 
@@ -138,28 +124,29 @@ export function JsonDbTester() {
     try {
       const start = performance.now();
       const query = createQuery(targetCollection).where('name', 'Contains', text).limit(20).build();
-
       const results = await collectionService.queryDocuments(targetCollection, query);
       const duration = (performance.now() - start).toFixed(2);
 
-      setSearchResults(results);
-      setSearchStats(`${results.length} résultat(s) en ${duration}ms`);
+      setSearchResults(results as JsonDoc[]);
+      setSearchStats(`${Array.isArray(results) ? results.length : 0} résultat(s) en ${duration}ms`);
       addLog(`🔍 Recherche "${text}" terminée.`);
-    } catch (e: any) {
-      addLog(`❌ Erreur recherche: ${e}`);
+    } catch (e: unknown) {
+      addLog(`❌ Erreur recherche: ${String(e)}`);
     }
   };
 
   const handleLoadModel = async () => {
     try {
-      addLog('⏳ Chargement du modèle RAG...');
+      addLog('⏳ Chargement du modèle...');
       const model = await modelService.loadProjectModel('un2', '_system');
       setProject(model);
       addLog(`✅ Modèle chargé !`);
-    } catch (e: any) {
-      addLog(`❌ Erreur modèle: ${e}`);
+    } catch (e: unknown) {
+      addLog(`❌ Erreur modèle: ${String(e)}`);
     }
   };
+
+  const tabs: TabType[] = ['admin', 'write', 'search'];
 
   return (
     <div
@@ -174,14 +161,13 @@ export function JsonDbTester() {
         overflow: 'hidden',
       }}
     >
-      {/* Header & Tabs */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 15 }}>
         <h3 style={{ color: 'white', margin: 0 }}>JSON-DB Explorer</h3>
         <div style={{ display: 'flex', gap: 5 }}>
-          {['admin', 'write', 'search'].map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab as any)}
+              onClick={() => setActiveTab(tab)}
               style={{
                 padding: '6px 12px',
                 borderRadius: 4,
@@ -198,12 +184,11 @@ export function JsonDbTester() {
         </div>
       </div>
 
-      {/* Barre de collection (Toujours visible) */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 15 }}>
         <input
           value={targetCollection}
           onChange={(e) => setTargetCollection(e.target.value)}
-          placeholder="Collection (ex: actors)"
+          placeholder="Collection"
           style={{
             flex: 1,
             padding: 8,
@@ -224,13 +209,11 @@ export function JsonDbTester() {
             cursor: 'pointer',
           }}
         >
-          Ouvrir / Créer
+          Ouvrir
         </button>
       </div>
 
-      {/* CONTENU PRINCIPAL */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* --- ONGLET ADMIN --- */}
         {activeTab === 'admin' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -245,7 +228,7 @@ export function JsonDbTester() {
                   cursor: 'pointer',
                 }}
               >
-                🏗️ Initialiser DB
+                🏗️ Init DB
               </button>
               <button
                 onClick={handleDropDb}
@@ -258,7 +241,7 @@ export function JsonDbTester() {
                   cursor: 'pointer',
                 }}
               >
-                💥 Supprimer DB
+                💥 Drop DB
               </button>
               <button
                 onClick={handleCreateIndex}
@@ -271,7 +254,7 @@ export function JsonDbTester() {
                   cursor: 'pointer',
                 }}
               >
-                ⚡ Indexer 'name'
+                ⚡ Index
               </button>
               <button
                 onClick={handleLoadModel}
@@ -284,11 +267,9 @@ export function JsonDbTester() {
                   cursor: 'pointer',
                 }}
               >
-                🧠 Charger Modèle (RAG)
+                🧠 Load Model
               </button>
             </div>
-
-            {/* Logs Console */}
             <div
               style={{
                 flex: 1,
@@ -302,9 +283,6 @@ export function JsonDbTester() {
                 border: '1px solid #374151',
               }}
             >
-              {logs.length === 0 && (
-                <span style={{ color: '#6b7280' }}>En attente d'actions...</span>
-              )}
               {logs.map((l, i) => (
                 <div key={i}>{l}</div>
               ))}
@@ -312,7 +290,6 @@ export function JsonDbTester() {
           </div>
         )}
 
-        {/* --- ONGLET WRITE --- */}
         {activeTab === 'write' && (
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 10 }}>
             <textarea
@@ -341,19 +318,18 @@ export function JsonDbTester() {
                 fontWeight: 'bold',
               }}
             >
-              💾 Insérer Document
+              💾 Insérer
             </button>
           </div>
         )}
 
-        {/* --- ONGLET SEARCH --- */}
         {activeTab === 'search' && (
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             <InputBar
               value={searchQuery}
               onChange={setSearchQuery}
               onSend={handleSearch}
-              placeholder={`Rechercher dans ${targetCollection}...`}
+              placeholder={`Rechercher...`}
             />
             <div
               style={{
@@ -367,9 +343,10 @@ export function JsonDbTester() {
               {searchStats}
             </div>
             <div style={{ flex: 1, overflowY: 'auto', marginTop: 10 }}>
-              {(searchResults.length > 0 ? searchResults : items).map((item: any) => (
+              {/* CORRECTION ICI : Utilisation de l'index comme clé de repli au lieu de Math.random() */}
+              {(searchResults.length > 0 ? searchResults : items).map((item, index) => (
                 <div
-                  key={item.id}
+                  key={String(item.id || index)}
                   style={{
                     background: '#1f2937',
                     marginBottom: 8,
@@ -379,10 +356,10 @@ export function JsonDbTester() {
                   }}
                 >
                   <div style={{ color: '#fff', fontWeight: 'bold' }}>
-                    {item.name || item.title || 'Sans nom'}
+                    {String(item.name || item.title || 'Sans nom')}
                   </div>
                   <div style={{ fontSize: '0.8em', color: '#9ca3af', marginTop: 4 }}>
-                    {item.description}
+                    {String(item.description || '')}
                   </div>
                   <div
                     style={{
@@ -392,7 +369,7 @@ export function JsonDbTester() {
                       fontFamily: 'monospace',
                     }}
                   >
-                    ID: {item.id}
+                    ID: {String(item.id)}
                   </div>
                 </div>
               ))}

@@ -2,16 +2,14 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import './styles/globals.css';
 
-// --- UTILS ---
+// --- UTILS & STORES ---
 import { MOCK_PROJECT } from '@/utils/mock-data';
-
-// --- STORES ---
 import { useModelStore } from '@/store/model-store';
 
 // --- LAYOUT ---
 import { MainLayout } from '@/components/layout/MainLayout';
 
-// --- VUES / MODULES ---
+// --- VUES ---
 import CapellaViewer from '@/components/model-viewer/CapellaViewer';
 import GeneticsDashboard from '@/components/genetics/GeneticsDashboard';
 import CodeGenerator from '@/components/codegen/CodeGenerator';
@@ -23,24 +21,33 @@ import MBAIEView from '@/components/ai-chat/MBAIEView';
 import SettingsPage from '@/components/settings/SettingsPage';
 import { JsonDbTester } from '@/components/JsonDbTester';
 import CognitiveTester from '@/components/CognitiveTester';
-
-// --- VUES REFACTORISÉES ---
 import RulesEngineDashboard from '@/components/rules_engine/RulesEngineDashboard';
 import BlockchainView from '@/components/blockchain/BlockchainView';
 import DashboardView from '@/components/dashboard/DashboardView';
 
+// --- TYPAGE STRICT ---
+interface SystemInfo {
+  app_version: string;
+  env_mode: string;
+  database_path: string;
+  api_status: string;
+}
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
-  const [sysInfo, setSysInfo] = useState<any>(null);
+
+  // Correction : Remplacement de any par SystemInfo | null
+  const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
+
   const { setProject } = useModelStore();
 
-  // --- BOOTSTRAP ---
   useEffect(() => {
-    console.log('🚀 Démarrage de GenAptitude (Frontend + Tauri)...');
+    console.log('🚀 Démarrage de GenAptitude...');
 
-    invoke('get_app_info')
+    // On type le retour de l'invoke
+    invoke<SystemInfo>('get_app_info')
       .then((response) => setSysInfo(response))
-      .catch((error) => console.error('❌ Erreur Backend Rust :', error));
+      .catch((error: unknown) => console.error('❌ Erreur Backend Rust :', error));
 
     const timer = setTimeout(() => {
       setProject(MOCK_PROJECT);
@@ -48,10 +55,10 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [setProject]);
 
-  // --- ROUTING ---
+  // ... (Le reste du code renderContent et getTitle reste inchangé)
+  // Je remets juste le bloc de rendu pour la complétude
   const renderContent = () => {
     switch (currentPage) {
-      // Vues Métier
       case 'model':
         return <CapellaViewer />;
       case 'genetics':
@@ -68,21 +75,16 @@ export default function App() {
         return <AssuranceDashboard />;
       case 'ai':
         return <MBAIEView />;
-
-      // Outils Système
       case 'settings':
         return <SettingsPage />;
       case 'admin-db':
         return <JsonDbTester />;
       case 'cognitive-tester':
         return <CognitiveTester />;
-
-      // Vues Démo / Complexes refactorisées
       case 'rules-engine':
         return <RulesEngineDashboard />;
       case 'blockchain':
         return <BlockchainView />;
-
       case 'dashboard':
       default:
         return <DashboardView sysInfo={sysInfo} onNavigate={setCurrentPage} />;

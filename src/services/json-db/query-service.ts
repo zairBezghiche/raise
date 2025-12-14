@@ -1,6 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '@/store/settings-store';
-import type { Query, Condition, ComparisonOperator, QueryResponse } from '@/types/json-db.types';
+// Correction : Ajout de l'import de Document
+import type {
+  Query,
+  Condition,
+  ComparisonOperator,
+  QueryResponse,
+  Document,
+} from '@/types/json-db.types';
 
 export class QueryBuilder {
   private query: Query;
@@ -15,7 +22,8 @@ export class QueryBuilder {
     };
   }
 
-  where(field: string, op: ComparisonOperator, value: any): this {
+  // Correction : value typée en unknown (accepte string, number, boolean, etc.)
+  where(field: string, op: ComparisonOperator, value: unknown): this {
     const condition: Condition = { field, operator: op, value };
 
     if (!this.query.filter) {
@@ -57,7 +65,8 @@ export class JsonDbQueryService {
     return { space: jsonDbSpace, db: jsonDbDatabase };
   }
 
-  async execute(query: Query, options?: { latest?: boolean }): Promise<any[]> {
+  // Correction : Retour typé Promise<Document[]>
+  async execute(query: Query, options?: { latest?: boolean }): Promise<Document[]> {
     try {
       const { space, db } = this.getConfig();
 
@@ -73,14 +82,16 @@ export class JsonDbQueryService {
         db,
         query,
       });
-      return res.documents;
-    } catch (e) {
+      // On assume que QueryResponse.documents est compatible avec Document[]
+      return res.documents as Document[];
+    } catch (e: unknown) {
       console.error('[QueryService] Execute Failed:', e);
       throw e;
     }
   }
 
-  async executeSql(sql: string): Promise<any[]> {
+  // Correction : Retour typé Promise<Document[]>
+  async executeSql(sql: string): Promise<Document[]> {
     try {
       const { space, db } = this.getConfig();
       const res = await invoke<QueryResponse>('jsondb_execute_sql', {
@@ -88,8 +99,8 @@ export class JsonDbQueryService {
         db,
         sql,
       });
-      return res.documents;
-    } catch (e) {
+      return res.documents as Document[];
+    } catch (e: unknown) {
       console.error('[QueryService] SQL Failed:', e);
       throw e;
     }

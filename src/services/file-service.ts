@@ -10,7 +10,8 @@ class FileService {
    * Ouvre une boîte de dialogue pour sélectionner un fichier JSON.
    * Retourne le contenu parsé ou null si annulé.
    */
-  async openJsonFile<T = any>(): Promise<T | null> {
+  // Correction : Utilisation de generic default 'unknown'
+  async openJsonFile<T = unknown>(): Promise<T | null> {
     try {
       const selectedPath = await open({
         multiple: false,
@@ -22,7 +23,7 @@ class FileService {
       // Lecture du fichier sélectionné
       const content = await readTextFile(selectedPath as string);
       return JSON.parse(content) as T;
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('File open error:', err);
       throw err;
     }
@@ -31,7 +32,8 @@ class FileService {
   /**
    * Ouvre une boîte de dialogue pour sauvegarder un objet en JSON.
    */
-  async saveJsonFile(data: any, suggestedName = 'model.json'): Promise<void> {
+  // Correction : data typé en 'unknown' (stringify accepte tout)
+  async saveJsonFile(data: unknown, suggestedName = 'model.json'): Promise<void> {
     try {
       const savePath = await save({
         defaultPath: suggestedName,
@@ -41,7 +43,7 @@ class FileService {
       if (!savePath) return;
 
       await writeTextFile(savePath, JSON.stringify(data, null, 2));
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('File save error:', err);
       throw err;
     }

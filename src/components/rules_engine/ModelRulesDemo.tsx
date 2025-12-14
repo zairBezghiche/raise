@@ -1,127 +1,101 @@
-import { useRulesEngine } from '../../hooks/useRulesEngine';
-import { invoke } from '@tauri-apps/api/core';
+import { useRulesEngine } from '@/hooks/useRulesEngine';
 
-const SPACE = 'demo_space';
-const DB = 'demo_db';
+// Interface locale pour typer les données de cette démo
+interface ModelRuleData {
+  name?: string;
+  parent_pkg?: string;
+  description?: string;
+  compliance?: string; // Calculé par le moteur
+  full_path?: string; // Calculé par le moteur
+  [key: string]: unknown;
+}
 
 export default function ModelRulesDemo() {
-  const { doc, handleChange, isCalculating, error } = useRulesEngine({
-    space: SPACE,
-    db: DB,
-    collection: 'logical_functions',
+  const { doc, handleChange, isCalculating } = useRulesEngine({
+    space: 'demo',
+    db: 'architecture',
+    collection: 'components',
     initialDoc: {
-      name: 'COMPUTE_VELOCITY', // Nom incorrect (manque LF_)
-      parent_pkg: 'Pkg_Navigation',
-      description: 'Calcule la vitesse sol basée sur le GPS.',
-      full_path: '',
-      compliance: '',
+      name: 'UserSystem',
+      parent_pkg: 'com.company.core',
+      description: '',
+      // compliance et full_path sont calculés
     },
   });
 
-  const initModel = async () => {
-    try {
-      await invoke('jsondb_init_model_rules', { space: SPACE, db: DB });
-      alert("✅ Règles d'ingénierie chargées (Schéma LogicalFunction)");
-      // Force refresh
-      handleChange('name', doc.name);
-    } catch (e) {
-      console.error(e);
-      alert('❌ Erreur: ' + e);
-    }
-  };
+  // Cast vers notre interface
+  const data = doc as ModelRuleData;
 
-  // Helper pour la couleur du badge
-  const isCompliant = doc.compliance?.includes('VALIDE');
+  // Calcul visuel basé sur le retour du moteur
+  const isCompliant = typeof data.compliance === 'string' && data.compliance.includes('VALIDE');
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 p-6">
-      <div className="flex justify-between items-end mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">📐 Propriétés Élément</h2>
-          <p className="text-slate-500">Validation des règles de modélisation Arcadia</p>
-        </div>
-        <button
-          onClick={initModel}
-          className="px-3 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-bold uppercase tracking-wide"
-        >
-          Reset Rules
-        </button>
-      </div>
+    <div className="p-4 bg-white rounded shadow-sm border border-gray-200 mt-6">
+      <h3 className="text-lg font-bold text-gray-700 mb-4">
+        🏗️ Démo 2 : Validation Architecture (Compliance)
+      </h3>
 
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        {/* Header style "Capella" */}
-        <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
-          <span className="font-mono text-sm font-semibold text-slate-600">LogicalFunction</span>
-          <div
-            className={`text-xs px-2 py-0.5 rounded-full border ${
-              isCompliant
-                ? 'bg-green-100 text-green-700 border-green-200'
-                : 'bg-red-100 text-red-700 border-red-200'
-            }`}
-          >
-            {isCalculating ? 'Calcul...' : doc.compliance || 'Unknown'}
-          </div>
-        </div>
-
-        <div className="p-6 grid grid-cols-1 gap-6">
-          {/* CHAMPS ÉDITABLES */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
-                Parent Package
-              </label>
-              <input
-                type="text"
-                value={doc.parent_pkg}
-                onChange={(e) => handleChange('parent_pkg', e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Name</label>
-              <input
-                type="text"
-                value={doc.name}
-                onChange={(e) => handleChange('name', e.target.value)}
-                className={`w-full p-2 border rounded outline-none transition ${
-                  !isCompliant && !isCalculating
-                    ? 'border-red-300 bg-red-50 text-red-900'
-                    : 'border-slate-300 focus:border-blue-500'
-                }`}
-              />
-              {!isCompliant && !isCalculating && (
-                <p className="text-xs text-red-500 mt-1">⚠️ Convention: LF_ + MAJUSCULES</p>
-              )}
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Formulaire */}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Package Parent</label>
+            <input
+              type="text"
+              placeholder="ex: com.company.module"
+              className="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
+              value={data.parent_pkg || ''}
+              onChange={(e) => handleChange('parent_pkg', e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">Doit commencer par 'com.company'</p>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
-              Description
-            </label>
+            <label className="block text-sm font-medium text-gray-600">Nom Composant</label>
+            <input
+              type="text"
+              className="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
+              value={data.name || ''}
+              onChange={(e) => handleChange('name', e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">Doit être en PascalCase</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Description</label>
             <textarea
+              className="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
               rows={3}
-              value={doc.description}
+              value={data.description || ''}
               onChange={(e) => handleChange('description', e.target.value)}
-              className="w-full p-2 border border-slate-300 rounded focus:border-blue-500 outline-none text-sm text-slate-600"
             />
           </div>
+        </div>
 
-          {/* CHAMPS CALCULÉS (READ-ONLY) */}
-          <div className="bg-slate-50 p-4 rounded border border-slate-200">
-            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
-              Computed Full Path (GenRules)
-            </label>
-            <code className="block w-full text-sm font-mono text-blue-700 break-all">
-              {doc.full_path || '...'}
-            </code>
-          </div>
+        {/* Résultat Live */}
+        <div className="bg-gray-50 p-4 rounded border border-gray-200 flex flex-col justify-between">
+          <div>
+            <h4 className="font-semibold text-gray-500 uppercase text-xs mb-4">Audit Temps Réel</h4>
 
-          {error && (
-            <div className="text-red-600 text-sm bg-red-50 p-2 rounded border border-red-100">
-              Erreur Système : {error}
+            <div
+              className={`p-3 rounded border mb-4 text-center font-bold ${
+                isCompliant
+                  ? 'bg-green-100 border-green-300 text-green-700'
+                  : 'bg-red-100 border-red-300 text-red-700'
+              }`}
+            >
+              {isCalculating ? 'Calcul...' : data.compliance || 'Unknown'}
             </div>
-          )}
+
+            <div className="space-y-2 text-sm">
+              <div className="flex flex-col">
+                <span className="text-gray-500 text-xs">Chemin complet généré :</span>
+                <code className="font-mono text-gray-800 bg-white p-1 border rounded mt-1">
+                  {data.full_path || '...'}
+                </code>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

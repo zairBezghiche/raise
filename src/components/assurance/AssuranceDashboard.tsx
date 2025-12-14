@@ -1,5 +1,12 @@
 import { useState } from 'react';
 
+// Interface pour les props du sous-composant
+interface MetricCardProps {
+  label: string;
+  value: string;
+  color: string;
+}
+
 export default function AssuranceDashboard() {
   const [activeTab, setActiveTab] = useState<'qa' | 'xai'>('qa');
 
@@ -114,7 +121,8 @@ export default function AssuranceDashboard() {
   );
 }
 
-function MetricCard({ label, value, color }: any) {
+// Composant typé avec l'interface
+function MetricCard({ label, value, color }: MetricCardProps) {
   return (
     <div
       style={{

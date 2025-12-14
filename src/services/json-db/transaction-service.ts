@@ -15,8 +15,12 @@ export class TransactionService {
     this.db = db || config.jsonDbDatabase;
   }
 
-  add(collection: string, doc: Record<string, any>): this {
-    const id = doc.id || uuidv4();
+  // CORRECTION (Ligne 18) : Remplacement de 'any' par 'unknown'
+  add(collection: string, doc: Record<string, unknown>): this {
+    // Comme doc est unknown, on accède à l'id via crochets et on vérifie le type
+    const rawId = doc['id'];
+    const id = typeof rawId === 'string' ? rawId : uuidv4();
+
     const docWithId = { ...doc, id };
 
     this.operations.push({
@@ -28,7 +32,8 @@ export class TransactionService {
     return this;
   }
 
-  update(collection: string, id: string, doc: Record<string, any>): this {
+  // CORRECTION (Ligne 31) : Remplacement de 'any' par 'unknown'
+  update(collection: string, id: string, doc: Record<string, unknown>): this {
     this.operations.push({
       type: 'Update',
       collection,
@@ -85,9 +90,9 @@ export class TransactionService {
             id: op.id,
           });
         }
-      } catch (error) {
+      } catch (error: unknown) {
+        // CORRECTION : Typage explicite de l'erreur catch
         console.error(`[Transaction] Error on ${op.type}:`, error);
-        // On pourrait throw ici pour arrêter la séquence
         throw error;
       }
     }

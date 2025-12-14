@@ -1,7 +1,16 @@
 import { useModelStore } from '@/store/model-store';
 
+// Interface pour les infos système venant de Rust
+interface SystemInfo {
+  app_version: string;
+  env_mode: string;
+  database_path: string;
+  api_status: string;
+}
+
 interface DashboardViewProps {
-  sysInfo: any;
+  // On autorise null si les infos ne sont pas encore chargées
+  sysInfo: SystemInfo | null;
   onNavigate: (page: string) => void;
 }
 
@@ -102,7 +111,14 @@ export default function DashboardView({ sysInfo, onNavigate }: DashboardViewProp
 
 // --- SOUS-COMPOSANTS LOCAUX ---
 
-function DashboardCard({ title, value, icon, desc }: any) {
+interface DashboardCardProps {
+  title: string;
+  value: string;
+  icon: string;
+  desc: string;
+}
+
+function DashboardCard({ title, value, icon, desc }: DashboardCardProps) {
   return (
     <div
       style={{
@@ -138,7 +154,13 @@ function DashboardCard({ title, value, icon, desc }: any) {
   );
 }
 
-function ActionButton({ onClick, label, primary }: any) {
+interface ActionButtonProps {
+  onClick: () => void;
+  label: string;
+  primary?: boolean;
+}
+
+function ActionButton({ onClick, label, primary }: ActionButtonProps) {
   return (
     <button
       onClick={onClick}

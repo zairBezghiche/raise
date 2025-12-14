@@ -14,12 +14,14 @@ export class WasmBridge {
       const { instance } = await WebAssembly.instantiate(bytes, {
         env: {
           // Import functions if needed
-          console_log: (arg: any) => console.log(arg),
+          // CORRECTION : unknown au lieu de any pour accepter n'importe quel type de log
+          console_log: (arg: unknown) => console.log(arg),
         },
       });
       this.instance = instance;
       console.log(`[WasmBridge] Module ${path} loaded.`);
-    } catch (e) {
+    } catch (e: unknown) {
+      // CORRECTION : Typage explicite de l'erreur
       console.error(`[WasmBridge] Failed to load ${path}`, e);
     }
   }

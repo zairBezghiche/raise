@@ -27,7 +27,8 @@ export type ComparisonOperator =
 export interface Condition {
   field: string;
   operator: ComparisonOperator;
-  value: any;
+  // CORRECTION : unknown accepte tout type (string, number, date...) de manière sécurisée
+  value: unknown;
 }
 
 export interface QueryFilter {
@@ -45,15 +46,17 @@ export interface Query {
 }
 
 export interface QueryResponse {
-  documents: any[];
+  // CORRECTION : Typage fort avec l'interface Document définie plus bas
+  documents: Document[];
   total: number;
 }
 
 // --- Transactions ---
 
 export type OperationRequest =
-  | { type: 'Insert'; collection: string; id: string; document: any }
-  | { type: 'Update'; collection: string; id: string; document: any }
+  // CORRECTION : Record<string, unknown> pour un objet JSON générique
+  | { type: 'Insert'; collection: string; id: string; document: Record<string, unknown> }
+  | { type: 'Update'; collection: string; id: string; document: Record<string, unknown> }
   | { type: 'Delete'; collection: string; id: string };
 
 export interface TransactionRequest {
@@ -62,7 +65,10 @@ export interface TransactionRequest {
 
 // --- Document Générique ---
 
-export interface Document<T = any> {
+// CORRECTION : Interface simplifiée et sécurisée sans 'any'
+// L'index signature [key: string]: unknown permet d'ajouter n'importe quelle propriété
+// mais obligera à vérifier son type avant usage (type narrowing).
+export interface Document {
   id: string;
-  [key: string]: T | any;
+  [key: string]: unknown;
 }

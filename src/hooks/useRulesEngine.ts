@@ -5,7 +5,8 @@ interface RulesEngineOptions {
   space: string;
   db: string;
   collection: string;
-  initialDoc: Record<string, any>;
+  // Correction : Remplacement de any par unknown pour le typage strict
+  initialDoc: Record<string, unknown>;
   debounceMs?: number;
 }
 
@@ -16,7 +17,8 @@ export function useRulesEngine({
   initialDoc,
   debounceMs = 500,
 }: RulesEngineOptions) {
-  const [doc, setDoc] = useState<Record<string, any>>(initialDoc);
+  // Correction : State typé avec Record<string, unknown>
+  const [doc, setDoc] = useState<Record<string, unknown>>(initialDoc);
   const [isCalculating, setIsCalculating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +35,8 @@ export function useRulesEngine({
 
       try {
         console.log('⚡ [Rules] Evaluation en cours...');
-        const updatedDoc = await invoke<Record<string, any>>('jsondb_evaluate_draft', {
+        // Correction : invoke retourne un Record<string, unknown>
+        const updatedDoc = await invoke<Record<string, unknown>>('jsondb_evaluate_draft', {
           space,
           db,
           collection,
@@ -47,7 +50,8 @@ export function useRulesEngine({
         } else {
           lastEvaluatedDoc.current = currentDocStr;
         }
-      } catch (err) {
+      } catch (err: unknown) {
+        // Correction : Typage explicite de l'erreur
         console.error('❌ [Rules] Erreur:', err);
         setError(String(err));
       } finally {
@@ -58,7 +62,8 @@ export function useRulesEngine({
     return () => clearTimeout(timer);
   }, [doc, space, db, collection, debounceMs]);
 
-  const handleChange = useCallback((field: string, value: any) => {
+  // Correction : La valeur peut être inconnue (string, number, boolean...)
+  const handleChange = useCallback((field: string, value: unknown) => {
     setDoc((prev) => ({ ...prev, [field]: value }));
   }, []);
 

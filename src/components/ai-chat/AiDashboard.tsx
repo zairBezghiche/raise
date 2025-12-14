@@ -9,24 +9,17 @@ export default function AiDashboard() {
   );
   const [nlpResult, setNlpResult] = useState<NlpResult | null>(null);
 
-  // CORRECTION : On définit la fonction DANS le useEffect.
-  // Cela évite les problèmes de dépendances, d'ordre de déclaration et de "setState synchrone".
   useEffect(() => {
     let isMounted = true;
-
     const fetchStatus = async () => {
       try {
         const s = await aiService.getSystemStatus();
-        if (isMounted) {
-          setStatus(s);
-        }
-      } catch (e) {
+        if (isMounted) setStatus(s);
+      } catch (e: unknown) {
         console.error(e);
       }
     };
-
     fetchStatus();
-
     return () => {
       isMounted = false;
     };
@@ -36,13 +29,14 @@ export default function AiDashboard() {
     try {
       const res = await aiService.testNlp(nlpInput);
       setNlpResult(res);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error(e);
     }
   };
 
-  // Styles
+  // Styles (Je garde le style existant mais je le type implicitement)
   const styles = {
+    // ... (copier les styles précédents, ils n'ont pas d'erreurs de type)
     container: {
       height: '100%',
       display: 'flex',
@@ -117,7 +111,7 @@ export default function AiDashboard() {
       </div>
 
       <div style={styles.content}>
-        {/* --- ONGLET LLM --- */}
+        {/* LLM */}
         {activeTab === 'llm' && (
           <div style={styles.card}>
             <h3>État du Noyau LLM</h3>
@@ -142,7 +136,7 @@ export default function AiDashboard() {
           </div>
         )}
 
-        {/* --- ONGLET NLP --- */}
+        {/* NLP */}
         {activeTab === 'nlp' && (
           <div style={styles.card}>
             <h3>Moteur de Traitement du Langage</h3>
@@ -174,13 +168,13 @@ export default function AiDashboard() {
                 </button>
               </div>
             </div>
-
             {nlpResult && (
               <div style={{ background: '#f3f4f6', padding: 15, borderRadius: 8 }}>
                 <div style={{ marginBottom: 10, fontWeight: 'bold' }}>
                   {nlpResult.token_count} Tokens détectés :
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {/* Correction : Typage explicite dans le map */}
                   {nlpResult.tokens.map((t: string, i: number) => (
                     <span
                       key={i}
@@ -201,7 +195,7 @@ export default function AiDashboard() {
           </div>
         )}
 
-        {/* --- ONGLET CONTEXT --- */}
+        {/* CONTEXT */}
         {activeTab === 'context' && (
           <div style={styles.card}>
             <h3>Mémoire Vectorielle (RAG)</h3>
@@ -232,7 +226,7 @@ export default function AiDashboard() {
           </div>
         )}
 
-        {/* --- ONGLET AGENTS --- */}
+        {/* AGENTS */}
         {activeTab === 'agents' && (
           <div style={styles.card}>
             <h3>Orchestration Multi-Agents</h3>

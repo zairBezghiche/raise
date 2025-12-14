@@ -1,20 +1,20 @@
 import { useCallback } from 'react';
 import { useAiStore, ChatMessage } from '@/store/ai-store';
 import { useSettingsStore } from '@/store/settings-store';
-// Import nécessaire pour communiquer avec le backend Rust
 import { invoke } from '@tauri-apps/api/core';
 
 function genId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+// On garde l'interface exportée au cas où on en aurait besoin ailleurs ou plus tard
 export interface UseAIChatOptions {
   systemPrompt?: string;
 }
 
-export function useAIChat(options?: UseAIChatOptions) {
+// CORRECTION : Suppression du paramètre inutilisé '_options'
+export function useAIChat() {
   const { messages, isThinking, error, addMessage, clear, setThinking, setError } = useAiStore();
-  // On récupère le réglage (par défaut "mock", il faudra peut-être le forcer à "tauri-local" ou le changer dans l'UI)
   const { aiBackend } = useSettingsStore();
 
   const sendMessage = useCallback(
@@ -22,7 +22,6 @@ export function useAIChat(options?: UseAIChatOptions) {
       const trimmed = content.trim();
       if (!trimmed) return;
 
-      // 1. Ajouter le message de l'utilisateur à l'UI tout de suite
       const userMsg: ChatMessage = {
         id: genId(),
         role: 'user',
@@ -37,28 +36,15 @@ export function useAIChat(options?: UseAIChatOptions) {
       try {
         let replyText: string;
 
-        // 2. Choix du backend
-        // Pour tester immédiatement, vous pouvez changer la condition ci-dessous
-        // ou modifier 'aiBackend' dans le settings-store.
         if (aiBackend === 'mock') {
-          // Pour le test, on force l'appel réel si vous n'avez pas encore l'UI de settings
-          // Décommentez la ligne suivante pour contourner le store le temps du test :
-          // replyText = await invoke('ai_chat', { userInput: trimmed });
-
-          // Sinon, comportement par défaut :
           replyText = `[mock] Réponse : "${trimmed}"`;
         } else {
-          // --- APPEL RÉEL AU BACKEND RUST ---
           console.log('Envoi vers Rust (ai_chat)...');
-
-          // La commande Rust s'appelle 'ai_chat'
-          // L'argument Rust est 'user_input', ici on passe 'userInput' (convention Tauri)
           replyText = await invoke<string>('ai_chat', {
             userInput: trimmed,
           });
         }
 
-        // 3. Ajouter la réponse de l'assistant
         const assistantMsg: ChatMessage = {
           id: genId(),
           role: 'assistant',
@@ -66,14 +52,15 @@ export function useAIChat(options?: UseAIChatOptions) {
           createdAt: new Date().toISOString(),
         };
         addMessage(assistantMsg);
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error('Erreur AI:', e);
-        setError(typeof e === 'string' ? e : e?.message ?? 'Erreur inconnue');
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        setError(errorMessage);
       } finally {
         setThinking(false);
       }
     },
-    [addMessage, setThinking, setError, aiBackend, messages, options?.systemPrompt],
+    [addMessage, setThinking, setError, aiBackend],
   );
 
   return {

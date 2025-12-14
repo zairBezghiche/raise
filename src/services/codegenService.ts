@@ -12,7 +12,8 @@ class CodegenService {
    * @param language Langage cible
    * @param model Le modèle JSON complet
    */
-  async generateCode(language: string, model: any): Promise<string> {
+  // Correction : Remplacement de 'any' par 'unknown' (plus sûr pour un passage opaque)
+  async generateCode(language: string, model: unknown): Promise<string> {
     try {
       // Appel à la commande Rust
       const result = await invoke<string>('generate_source_code', {
@@ -20,7 +21,7 @@ class CodegenService {
         model,
       });
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Erreur génération de code:', error);
       throw error;
     }

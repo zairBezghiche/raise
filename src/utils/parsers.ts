@@ -4,8 +4,10 @@
 export function parseError(error: unknown): string {
   if (typeof error === 'string') return error;
   if (error instanceof Error) return error.message;
+  // Correction : Vérification et cast sécurisé sans 'any'
   if (typeof error === 'object' && error !== null && 'message' in error) {
-    return String((error as any).message);
+    // On sait que 'message' existe, on le cast pour y accéder
+    return String((error as Record<string, unknown>).message);
   }
   return 'Erreur inconnue';
 }

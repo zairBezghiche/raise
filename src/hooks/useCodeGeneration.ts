@@ -25,9 +25,11 @@ export function useCodeGeneration() {
         // Appel au service (qui peut appeler Rust ou faire le traitement en JS)
         const result = await codegenService.generateCode(language, currentProject);
         setGeneratedCode(result);
-      } catch (err: any) {
+      } catch (err: unknown) {
+        // CORRECTION : Remplacement de 'any' par 'unknown' + extraction sécurisée
         console.error('[useCodeGeneration] Error:', err);
-        setError(err.message || String(err));
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -40,7 +42,7 @@ export function useCodeGeneration() {
     try {
       await navigator.clipboard.writeText(generatedCode);
       return true;
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Copy failed', e);
       return false;
     }

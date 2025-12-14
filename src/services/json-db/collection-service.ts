@@ -88,9 +88,10 @@ export class CollectionService {
     });
   }
 
-  async insertDocument(collection: string, doc: any): Promise<any> {
+  // Correction : doc est un objet générique, retour est un Document typé
+  async insertDocument(collection: string, doc: Record<string, unknown>): Promise<Document> {
     const { space, db } = this.getConfig();
-    return await invoke('jsondb_insert_document', {
+    return await invoke<Document>('jsondb_insert_document', {
       space,
       db,
       collection,
@@ -98,9 +99,10 @@ export class CollectionService {
     });
   }
 
-  async getDocument(collection: string, id: string): Promise<any | null> {
+  // Correction : Retour typé Document ou null
+  async getDocument(collection: string, id: string): Promise<Document | null> {
     const { space, db } = this.getConfig();
-    return await invoke('jsondb_get_document', {
+    return await invoke<Document | null>('jsondb_get_document', {
       space,
       db,
       collection,
@@ -108,9 +110,14 @@ export class CollectionService {
     });
   }
 
-  async updateDocument(collection: string, id: string, doc: any): Promise<any> {
+  // Correction : doc est un objet générique, retour est un Document typé
+  async updateDocument(
+    collection: string,
+    id: string,
+    doc: Record<string, unknown>,
+  ): Promise<Document> {
     const { space, db } = this.getConfig();
-    return await invoke('jsondb_update_document', {
+    return await invoke<Document>('jsondb_update_document', {
       space,
       db,
       collection,
@@ -129,13 +136,15 @@ export class CollectionService {
     });
   }
 
+  // Correction : Retour typé Document[]
   async queryDocuments(
     collection: string,
     query: Query,
     options?: { latest?: boolean },
-  ): Promise<any[]> {
+  ): Promise<Document[]> {
     query.collection = collection;
-    return queryService.execute(query, options);
+    // On assume que queryService retourne des documents compatibles
+    return (await queryService.execute(query, options)) as Document[];
   }
 }
 

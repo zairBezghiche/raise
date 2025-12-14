@@ -14,14 +14,16 @@ export interface OptimizationResult {
 }
 
 class GeneticsService {
-  async runOptimization(params: GeneticsParams, model: any): Promise<OptimizationResult> {
+  // Correction : 'model' typé en 'unknown' au lieu de 'any'
+  async runOptimization(params: GeneticsParams, model: unknown): Promise<OptimizationResult> {
     try {
       // Les clés de params sont transmises telles quelles au backend Rust
       return await invoke<OptimizationResult>('run_genetic_optimization', {
         params,
         model,
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      // Correction : Typage explicite de l'erreur
       console.error('❌ Erreur génétique:', error);
       throw error;
     }

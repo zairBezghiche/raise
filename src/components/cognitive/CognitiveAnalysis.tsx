@@ -19,19 +19,25 @@ export default function CognitiveAnalysis() {
     const elements: Record<string, ModelElement> = {};
 
     // Fonction helper pour extraire les éléments de chaque couche
-    const extractLayer = (layerName: string, items: any[]) => {
+    // Correction : Remplacement de any[] par unknown[] pour plus de sécurité
+    const extractLayer = (layerName: string, items: unknown[]) => {
       if (!items) return;
       items.forEach((item) => {
-        if (item && item.id) {
-          elements[item.id] = {
-            id: item.id,
-            name: typeof item.name === 'string' ? item.name : 'Sans nom',
-            kind: item.type || 'Unknown',
-            properties: {
-              layer: layerName,
-              description: item.description || '',
-            },
-          };
+        // Type guard simple pour vérifier qu'on a un objet avec un ID
+        if (typeof item === 'object' && item !== null && 'id' in item) {
+          const typedItem = item as Record<string, unknown>; // Cast sûr après vérification
+
+          if (typeof typedItem.id === 'string') {
+            elements[typedItem.id] = {
+              id: typedItem.id,
+              name: typeof typedItem.name === 'string' ? typedItem.name : 'Sans nom',
+              kind: typeof typedItem.type === 'string' ? typedItem.type : 'Unknown',
+              properties: {
+                layer: layerName,
+                description: typeof typedItem.description === 'string' ? typedItem.description : '',
+              },
+            };
+          }
         }
       });
     };
@@ -71,9 +77,11 @@ export default function CognitiveAnalysis() {
       const result = await cognitiveService.runConsistencyCheck(payload);
 
       setReport(result);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError('Erreur WASM : ' + (err.message || String(err)));
+      // Correction : Typage sécurisé de l'erreur
+      const msg = err instanceof Error ? err.message : String(err);
+      setError('Erreur WASM : ' + msg);
     } finally {
       setAnalyzing(false);
     }

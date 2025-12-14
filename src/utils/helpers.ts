@@ -22,6 +22,8 @@ export function cn(...classes: (string | undefined | null | false)[]): string {
 /**
  * Limite la fréquence d'appel d'une fonction (ex: resize, search input).
  */
+// Correction : On désactive la règle ici car 'any' est requis pour la contravariance des arguments génériques
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function debounce<T extends (...args: any[]) => void>(
   func: T,
   wait: number,

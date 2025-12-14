@@ -32,18 +32,35 @@ export default function CognitiveTester() {
       if (useRealData && currentProject) {
         // --- ADAPTATEUR DE DONNÉES (Mapping) ---
         // On transforme le ProjectModel de l'app en CognitiveModel pour le WASM.
-        // On utilise 'as any' pour accéder aux champs sans blocage TypeScript.
-        const proj = currentProject as any;
+        const proj = currentProject as Record<string, unknown>;
+
+        // Helpers d'extraction sécurisée
+        const getString = (key: string) =>
+          typeof proj[key] === 'string' ? (proj[key] as string) : undefined;
+
+        const getObject = (key: string) =>
+          typeof proj[key] === 'object' && proj[key] !== null
+            ? (proj[key] as Record<string, unknown>)
+            : undefined;
+
+        // CORRECTION : Conversion explicite des métadonnées en string
+        // Le type attendu est Record<string, string>, mais getObject renvoie Record<string, unknown>
+        const rawMeta = getObject('metadata') || {};
+        const safeMeta: Record<string, string> = {};
+
+        Object.entries(rawMeta).forEach(([k, v]) => {
+          // On force la conversion en string pour satisfaire le typage strict
+          safeMeta[k] = String(v);
+        });
 
         dataToSend = {
-          // Si 'id' n'existe pas, on cherche 'name', 'handle' ou on met une valeur par défaut
-          id: proj.id || proj.name || proj.handle || 'project-from-store',
+          id: getString('id') || getString('name') || getString('handle') || 'project-from-store',
 
-          // Si 'elements' n'existe pas, on essaie de voir si c'est dans 'layers' ou 'nodes'
-          // Sinon on envoie un objet vide pour ne pas faire crasher le WASM
-          elements: proj.elements || proj.nodes || {},
+          // Pour 'elements', on cast en 'any' car la structure récursive est complexe à mapper ici
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          elements: (getObject('elements') || getObject('nodes') || {}) as any,
 
-          metadata: proj.metadata || {},
+          metadata: safeMeta,
         };
       } else {
         dataToSend = dummyModel;
@@ -54,7 +71,7 @@ export default function CognitiveTester() {
       // Appel du service
       const result = await cognitiveService.runConsistencyCheck(dataToSend);
       setReport(result);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
       setError(String(err));
     } finally {
@@ -62,7 +79,7 @@ export default function CognitiveTester() {
     }
   };
 
-  // Styles
+  // Styles typés
   const styles = {
     container: { padding: '20px', fontFamily: 'sans-serif' },
     card: {
@@ -93,16 +110,19 @@ export default function CognitiveTester() {
     },
   };
 
-  // Helper pour l'affichage sécurisé (évite le crash si 'elements' n'existe pas)
   const getProjectInfo = () => {
     if (!currentProject) return 'Aucun projet';
-    const p = currentProject as any;
-    const id = p.id || p.name || 'ID Inconnu';
-    const count = p.elements
-      ? Object.keys(p.elements).length
-      : p.nodes
-      ? Object.keys(p.nodes).length
-      : 0;
+    const p = currentProject as Record<string, unknown>;
+
+    const id = typeof p.id === 'string' ? p.id : typeof p.name === 'string' ? p.name : 'ID Inconnu';
+
+    let count = 0;
+    if (p.elements && typeof p.elements === 'object') {
+      count = Object.keys(p.elements).length;
+    } else if (p.nodes && typeof p.nodes === 'object') {
+      count = Object.keys(p.nodes).length;
+    }
+
     return `${id} (${count} éléments)`;
   };
 

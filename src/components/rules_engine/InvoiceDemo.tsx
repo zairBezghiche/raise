@@ -1,120 +1,100 @@
-import { useRulesEngine } from '../../hooks/useRulesEngine';
-import { invoke } from '@tauri-apps/api/core';
+import { useRulesEngine } from '@/hooks/useRulesEngine';
 
-const SPACE = 'demo_space';
-const DB = 'demo_db';
+// Interface locale pour typer les données de cette démo
+interface InvoiceData {
+  user_id?: string;
+  days?: number | string; // Accepte string pour l'input
+  created_at?: string;
+  due_at?: string;
+  ref?: string;
+  amount?: number;
+  // Permet d'autres champs dynamiques
+  [key: string]: unknown;
+}
 
 export default function InvoiceDemo() {
   const { doc, handleChange, isCalculating, error } = useRulesEngine({
-    space: SPACE,
-    db: DB,
+    space: 'demo',
+    db: 'finance',
     collection: 'invoices',
     initialDoc: {
-      user_id: 'u_dev',
-      days: 10,
-      created_at: new Date().toISOString().split('T')[0],
-      total: 0,
-      due_at: '',
-      ref: '',
+      user_id: 'USR_123',
+      days: 30, // Délai de paiement
+      created_at: new Date().toISOString(),
+      // ref, amount, due_at seront calculés par le moteur
     },
   });
 
-  const initDemo = async () => {
-    try {
-      // Nous allons créer cette commande Rust juste après pour faciliter la vie
-      await invoke('jsondb_init_demo_rules', { space: SPACE, db: DB });
-      alert('✅ Environnement de démo prêt (Schémas + User + Collection)');
-      // On force un rafraichissement du calcul
-      handleChange('days', doc.days);
-    } catch (e) {
-      console.error(e);
-      alert('❌ Erreur init: ' + e);
-    }
-  };
+  // Cast du document générique vers notre structure attendue
+  const data = doc as InvoiceData;
 
   return (
-    <div className="p-6 max-w-2xl mx-auto bg-white rounded-xl shadow-md border border-gray-200 space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold text-gray-800">🧾 Démo Facture (GenRules)</h2>
-        <button
-          onClick={initDemo}
-          className="px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm font-semibold"
-        >
-          🛠️ Setup Démo
-        </button>
-      </div>
+    <div className="p-4 bg-white rounded shadow-sm border border-gray-200">
+      <h3 className="text-lg font-bold text-gray-700 mb-4">
+        🧾 Démo 1 : Facturation (Calculs de Dates)
+      </h3>
 
-      <p className="text-sm text-gray-500">
-        Le backend Rust calcule le total (Jours × TJM), la date (+30j) et la référence en temps
-        réel.
-      </p>
-
-      <div className="grid grid-cols-1 gap-4">
-        {/* INPUTS */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Utilisateur ID (Lookup DB)
-          </label>
-          <input
-            type="text"
-            value={doc.user_id}
-            onChange={(e) => handleChange('user_id', e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 p-2 border"
-          />
-          <span className="text-xs text-gray-400">Essayez "u_dev" (TJM: 500€)</span>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Jours travaillés</label>
-          <input
-            type="number"
-            value={doc.days}
-            onChange={(e) => handleChange('days', parseFloat(e.target.value) || 0)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 p-2 border"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Date Création</label>
-          <input
-            type="date"
-            value={doc.created_at?.split('T')[0]}
-            onChange={(e) => handleChange('created_at', new Date(e.target.value).toISOString())}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 p-2 border"
-          />
-        </div>
-
-        <hr className="my-2" />
-
-        {/* RÉSULTATS CALCULÉS */}
-        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-          <div className="flex justify-between items-center mb-2">
-            <span className="font-semibold text-gray-700">Total HT (Calculé):</span>
-            <span
-              className={`text-2xl font-bold ${
-                isCalculating ? 'text-orange-400' : 'text-green-600'
-              }`}
-            >
-              {isCalculating ? '...' : `${doc.total} €`}
-            </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Formulaire */}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600">ID Utilisateur</label>
+            <input
+              type="text"
+              className="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
+              value={data.user_id || ''}
+              onChange={(e) => handleChange('user_id', e.target.value)}
+            />
           </div>
 
-          <div className="text-sm text-gray-600 flex justify-between">
-            <strong>Échéance (+30j):</strong>
-            <span>{doc.due_at ? new Date(doc.due_at).toLocaleDateString() : '-'}</span>
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Délai (jours)</label>
+            <input
+              type="number"
+              className="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
+              value={data.days || 0}
+              onChange={(e) => handleChange('days', parseInt(e.target.value) || 0)}
+            />
           </div>
 
-          <div className="text-sm text-gray-600 flex justify-between mt-1">
-            <strong>Référence Auto:</strong>
-            <code className="bg-gray-200 px-2 rounded text-gray-800">{doc.ref || '-'}</code>
+          <div>
+            <label className="block text-sm font-medium text-gray-600">Date Création</label>
+            <input
+              type="date"
+              className="mt-1 block w-full border border-gray-300 rounded px-3 py-2"
+              // On sécurise l'accès et le split
+              value={typeof data.created_at === 'string' ? data.created_at.split('T')[0] : ''}
+              onChange={(e) => handleChange('created_at', new Date(e.target.value).toISOString())}
+            />
           </div>
         </div>
 
-        {error && (
-          <div className="p-3 bg-red-50 text-red-700 rounded border border-red-200 text-sm">
-            ⚠️ {error}
+        {/* Résultat Live */}
+        <div className="bg-gray-50 p-4 rounded border border-gray-200 flex flex-col justify-between">
+          <div>
+            <h4 className="font-semibold text-gray-500 uppercase text-xs mb-4">
+              Résultat Moteur (Rust)
+            </h4>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Date Échéance :</span>
+                <span className="font-mono font-bold text-blue-600">
+                  {data.due_at ? new Date(data.due_at).toLocaleDateString() : '-'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Référence :</span>
+                <code className="bg-gray-200 px-2 rounded text-gray-800">{data.ref || '-'}</code>
+              </div>
+            </div>
           </div>
-        )}
+
+          {error && <div className="mt-4 text-red-500 text-xs">{error}</div>}
+
+          <div className="mt-4 text-xs text-gray-400 text-right">
+            {isCalculating ? '⚡ Calcul...' : '✅ Synchronisé'}
+          </div>
+        </div>
       </div>
     </div>
   );

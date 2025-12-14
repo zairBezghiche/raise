@@ -1,6 +1,7 @@
 // src/services/json-db/schema-service.ts
 
-export type JsonSchema = Record<string, any>;
+// Correction : Utilisation de 'unknown' au lieu de 'any' pour éviter le warning
+export type JsonSchema = Record<string, unknown>;
 
 export class SchemaService {
   /**

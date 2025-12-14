@@ -1,4 +1,4 @@
-import { useState, useEffect, DragEvent } from 'react'; // CORRECTION : useRef retiré
+import { useState, useEffect, DragEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 import { NodeLibrary } from './NodeLibrary';
@@ -15,15 +15,29 @@ interface WorkflowView {
   logs: string[];
 }
 
+interface NodeData {
+  id: string;
+  type: string;
+  label: string;
+  x: number;
+  y: number;
+}
+
+interface ConnectionData {
+  id: string;
+  from: string;
+  to: string;
+}
+
 // --- DÉMO DATA ---
-const INITIAL_NODES = [
+const INITIAL_NODES: NodeData[] = [
   { id: 'step-1', type: 'task', label: '🔍 Analyse IA', x: 100, y: 100 },
   { id: 'step-2', type: 'gate_hitl', label: '🛡️ Validation Humaine', x: 400, y: 100 },
   { id: 'step-3', type: 'task', label: '📦 Compilation', x: 400, y: 300 },
   { id: 'step-4', type: 'end', label: '🚀 Déploiement', x: 700, y: 300 },
 ];
 
-const INITIAL_CONNECTIONS = [
+const INITIAL_CONNECTIONS: ConnectionData[] = [
   { id: 'c1', from: 'step-1', to: 'step-2' },
   { id: 'c2', from: 'step-2', to: 'step-3' },
   { id: 'c3', from: 'step-3', to: 'step-4' },
@@ -31,10 +45,8 @@ const INITIAL_CONNECTIONS = [
 
 export default function WorkflowCanvas() {
   // État visuel
-  const [nodes, setNodes] = useState(INITIAL_NODES);
-
-  // CORRECTION : On retire 'setConnections' car on ne modifie pas les liens dans cette démo
-  const [connections] = useState(INITIAL_CONNECTIONS);
+  const [nodes, setNodes] = useState<NodeData[]>(INITIAL_NODES);
+  const [connections] = useState<ConnectionData[]>(INITIAL_CONNECTIONS);
 
   // État Backend
   const [instance, setInstance] = useState<WorkflowView | null>(null);
@@ -54,7 +66,8 @@ export default function WorkflowCanvas() {
     stopPolling();
     const pid = window.setInterval(async () => {
       try {
-        const view: WorkflowView = await invoke('get_workflow_state', { instanceId });
+        // unknown -> WorkflowView (cast implicite via générique invoke)
+        const view = await invoke<WorkflowView>('get_workflow_state', { instanceId });
         setInstance(view);
 
         if (view.status === 'COMPLETED' || view.status === 'FAILED') {
@@ -88,12 +101,12 @@ export default function WorkflowCanvas() {
       await invoke('register_workflow', { definition });
 
       console.log('Démarrage...');
-      const view: WorkflowView = await invoke('start_workflow', { workflowId: definition.id });
+      const view = await invoke<WorkflowView>('start_workflow', { workflowId: definition.id });
       setInstance(view);
       startPolling(view.id);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Erreur Backend:', err);
-      alert('Erreur Backend: ' + err);
+      alert('Erreur Backend: ' + String(err));
     }
   };
 
@@ -106,18 +119,18 @@ export default function WorkflowCanvas() {
         approved,
       });
       // Le polling mettra à jour l'UI automatiquement
-    } catch (err) {
-      alert('Erreur resume: ' + err);
+    } catch (err: unknown) {
+      alert('Erreur resume: ' + String(err));
     }
   };
 
   // --- DRAG & DROP ---
-  const handleDrop = (e: DragEvent) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const type = e.dataTransfer.getData('workflowNodeType');
     if (type) {
       const rect = e.currentTarget.getBoundingClientRect();
-      const newNode = {
+      const newNode: NodeData = {
         id: `node-${Date.now()}`,
         type,
         label: `Nouveau ${type}`,
@@ -127,10 +140,12 @@ export default function WorkflowCanvas() {
       setNodes([...nodes, newNode]);
     }
   };
-  const handleDragOver = (e: DragEvent) => e.preventDefault();
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => e.preventDefault();
 
   // --- HELPER RENDU ---
-  const getNodeColor = (node: any) => {
+  // Correction : Typage explicite du node
+  const getNodeColor = (node: NodeData) => {
     if (!instance) return 'var(--bg-panel)';
 
     // Si le nœud est actif

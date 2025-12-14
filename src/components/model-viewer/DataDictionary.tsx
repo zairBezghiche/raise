@@ -6,7 +6,15 @@ interface NamedElement {
   uuid?: string;
   name?: string;
   description?: string;
-  [key: string]: any;
+  [key: string]: unknown;
+}
+
+interface LayerSectionProps {
+  title: string;
+  color: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
 }
 
 export function DataDictionary() {
@@ -82,17 +90,28 @@ export function DataDictionary() {
     );
   };
 
-  const p = project as any;
+  // Cast sécurisé pour accéder aux couches dynamiques
+  const p = project as Record<string, unknown>;
+  const meta = (p.meta || {}) as Record<string, string>;
 
-  // Helpers de détection (simplifiés)
-  const checkLayer = (layer: any) =>
-    layer && Object.values(layer).some((arr: any) => Array.isArray(arr) && arr.length > 0);
-  const hasOA = checkLayer(p.oa);
-  const hasSA = checkLayer(p.sa);
-  const hasLA = checkLayer(p.la);
-  const hasPA = checkLayer(p.pa);
-  const hasEPBS = checkLayer(p.epbs);
-  const hasData = checkLayer(p.data);
+  // Helpers d'extraction typés
+  const getLayer = (key: string) => (p[key] || {}) as Record<string, NamedElement[]>;
+  const checkLayer = (layerData: Record<string, unknown>) =>
+    layerData && Object.values(layerData).some((arr) => Array.isArray(arr) && arr.length > 0);
+
+  const oa = getLayer('oa');
+  const sa = getLayer('sa');
+  const la = getLayer('la');
+  const pa = getLayer('pa');
+  const epbs = getLayer('epbs');
+  const data = getLayer('data');
+
+  const hasOA = checkLayer(oa);
+  const hasSA = checkLayer(sa);
+  const hasLA = checkLayer(la);
+  const hasPA = checkLayer(pa);
+  const hasEPBS = checkLayer(epbs);
+  const hasData = checkLayer(data);
 
   return (
     <div
@@ -122,7 +141,7 @@ export function DataDictionary() {
         >
           Projet :{' '}
           <strong style={{ color: 'var(--text-main)' }}>
-            {p.meta?.name || p.name || 'Inconnu'}
+            {(typeof p.name === 'string' ? p.name : meta.name) || 'Inconnu'}
           </strong>
           <span style={{ margin: '0 10px' }}>•</span>
           ID:{' '}
@@ -134,7 +153,7 @@ export function DataDictionary() {
               fontFamily: 'var(--font-family-mono)',
             }}
           >
-            {p.id || 'N/A'}
+            {typeof p.id === 'string' ? p.id : 'N/A'}
           </code>
         </div>
       </header>
@@ -147,8 +166,8 @@ export function DataDictionary() {
           isOpen={openLayers.oa}
           onToggle={() => toggleLayer('oa')}
         >
-          {renderElementList('Acteurs', p.oa.actors, '👤')}
-          {renderElementList('Activités', p.oa.activities, '⚙️')}
+          {renderElementList('Acteurs', oa.actors, '👤')}
+          {renderElementList('Activités', oa.activities, '⚙️')}
         </LayerSection>
       )}
 
@@ -159,8 +178,8 @@ export function DataDictionary() {
           isOpen={openLayers.sa}
           onToggle={() => toggleLayer('sa')}
         >
-          {renderElementList('Acteurs', p.sa.actors, '👤')}
-          {renderElementList('Fonctions', p.sa.functions, 'ƒ')}
+          {renderElementList('Acteurs', sa.actors, '👤')}
+          {renderElementList('Fonctions', sa.functions, 'ƒ')}
         </LayerSection>
       )}
 
@@ -171,8 +190,8 @@ export function DataDictionary() {
           isOpen={openLayers.la}
           onToggle={() => toggleLayer('la')}
         >
-          {renderElementList('Composants', p.la.components, '📦')}
-          {renderElementList('Fonctions', p.la.functions, 'ƒ')}
+          {renderElementList('Composants', la.components, '📦')}
+          {renderElementList('Fonctions', la.functions, 'ƒ')}
         </LayerSection>
       )}
 
@@ -183,7 +202,7 @@ export function DataDictionary() {
           isOpen={openLayers.pa}
           onToggle={() => toggleLayer('pa')}
         >
-          {renderElementList('Composants (Node)', p.pa.components, '🖥️')}
+          {renderElementList('Composants (Node)', pa.components, '🖥️')}
         </LayerSection>
       )}
 
@@ -194,7 +213,7 @@ export function DataDictionary() {
           isOpen={openLayers.epbs}
           onToggle={() => toggleLayer('epbs')}
         >
-          {renderElementList('Configuration Items (CI)', p.epbs.configurationItems, '🍱')}
+          {renderElementList('Configuration Items (CI)', epbs.configurationItems, '🍱')}
         </LayerSection>
       )}
 
@@ -206,8 +225,8 @@ export function DataDictionary() {
       >
         {hasData ? (
           <>
-            {renderElementList('Classes', p.data?.classes, '🏷️')}
-            {renderElementList('Types', p.data?.dataTypes, '🔢')}
+            {renderElementList('Classes', data.classes, '🏷️')}
+            {renderElementList('Types', data.dataTypes, '🔢')}
           </>
         ) : (
           <div style={{ padding: '10px', fontStyle: 'italic', color: 'var(--text-muted)' }}>
@@ -220,7 +239,7 @@ export function DataDictionary() {
 }
 
 // Composant interne pour l'en-tête de section
-function LayerSection({ title, color, isOpen, onToggle, children }: any) {
+function LayerSection({ title, color, isOpen, onToggle, children }: LayerSectionProps) {
   return (
     <div style={{ marginBottom: 'var(--spacing-6)' }}>
       <div
