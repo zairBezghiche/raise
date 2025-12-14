@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-// Assurez-vous que l'import pointe bien vers le fichier créé à l'étape 1
 import { aiService, AiStatus, NlpResult } from '@/services/ai-service';
 
 export default function AiDashboard() {
@@ -10,18 +9,28 @@ export default function AiDashboard() {
   );
   const [nlpResult, setNlpResult] = useState<NlpResult | null>(null);
 
+  // CORRECTION : On définit la fonction DANS le useEffect.
+  // Cela évite les problèmes de dépendances, d'ordre de déclaration et de "setState synchrone".
   useEffect(() => {
-    loadStatus();
-  }, []);
+    let isMounted = true;
 
-  const loadStatus = async () => {
-    try {
-      const s = await aiService.getSystemStatus();
-      setStatus(s);
-    } catch (e) {
-      console.error(e);
-    }
-  };
+    const fetchStatus = async () => {
+      try {
+        const s = await aiService.getSystemStatus();
+        if (isMounted) {
+          setStatus(s);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    fetchStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const runNlpTest = async () => {
     try {
@@ -172,7 +181,6 @@ export default function AiDashboard() {
                   {nlpResult.token_count} Tokens détectés :
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {/* CORRECTION ICI : Types explicites (t: string, i: number) */}
                   {nlpResult.tokens.map((t: string, i: number) => (
                     <span
                       key={i}
@@ -229,7 +237,6 @@ export default function AiDashboard() {
           <div style={styles.card}>
             <h3>Orchestration Multi-Agents</h3>
             <div style={{ display: 'grid', gap: 10 }}>
-              {/* CORRECTION ICI : Types explicites (agent: string, i: number) */}
               {status?.active_agents.map((agent: string, i: number) => (
                 <div
                   key={i}

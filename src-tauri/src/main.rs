@@ -60,10 +60,8 @@ fn main() {
             app.manage(AsyncMutex::new(WorkflowStore::default()));
 
             // C. Blockchain (Clients)
-            // genaptitude::blockchain::ensure_innernet_state(app, "default");
             let app_handle = app.handle();
             genaptitude::blockchain::ensure_innernet_state(app_handle, "default");
-            // Note: FabricClient doit être géré ici aussi si nécessaire
 
             Ok(())
         })
@@ -83,6 +81,9 @@ fn main() {
             json_db_commands::jsondb_list_all,
             json_db_commands::jsondb_execute_query,
             json_db_commands::jsondb_execute_sql,
+            // <-- MOTEUR DE RÈGLES --->
+            json_db_commands::jsondb_evaluate_draft,
+            json_db_commands::jsondb_init_demo_rules,
             // --- MODEL & ARCHITECTURE ---
             model_commands::load_project_model,
             // --- IA & AGENTS ---

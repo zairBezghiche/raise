@@ -1,5 +1,4 @@
-// FICHIER : src/components/JsonDbTester.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { collectionService } from '@/services/json-db/collection-service';
 import { createQuery } from '@/services/json-db/query-service';
 import { modelService } from '@/services/model-service';
@@ -9,7 +8,7 @@ import { InputBar } from '@/components/ai-chat/InputBar';
 export function JsonDbTester() {
   // --- État UI ---
   const [logs, setLogs] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'write' | 'search' | 'admin'>('admin'); // Ajout tab Admin
+  const [activeTab, setActiveTab] = useState<'write' | 'search' | 'admin'>('admin');
 
   // --- État Données ---
   const [targetCollection, setTargetCollection] = useState('actors');
@@ -41,11 +40,41 @@ export function JsonDbTester() {
   const addLog = (msg: string) =>
     setLogs((prev) => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
-  useEffect(() => {
-    refreshItems();
-  }, [targetCollection]);
+  // --- HELPER : Récupération des données (Logic Only) ---
+  const fetchCollectionData = useCallback(async (colName: string) => {
+    try {
+      const docs = await collectionService.listAll(colName);
+      return Array.isArray(docs) ? docs.reverse() : [];
+    } catch (e) {
+      return [];
+    }
+  }, []);
 
-  // --- ACTIONS ADMIN (NOUVEAU) ---
+  // --- 1. CHARGEMENT AUTOMATIQUE (Sécurisé) ---
+  useEffect(() => {
+    let isMounted = true;
+
+    const load = async () => {
+      const data = await fetchCollectionData(targetCollection);
+      if (isMounted) {
+        setItems(data);
+      }
+    };
+
+    load();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [targetCollection, fetchCollectionData]);
+
+  // --- 2. ACTION MANUELLE (Pour les boutons) ---
+  const handleRefreshManual = async () => {
+    const data = await fetchCollectionData(targetCollection);
+    setItems(data);
+  };
+
+  // --- ACTIONS ADMIN ---
   const handleInitDb = async () => {
     try {
       await collectionService.createDb();
@@ -68,7 +97,7 @@ export function JsonDbTester() {
 
   const handleCreateIndex = async () => {
     try {
-      await collectionService.createIndex(targetCollection, 'name', 'hash'); // Index sur 'name' par défaut
+      await collectionService.createIndex(targetCollection, 'name', 'hash');
       addLog(`✅ Index Hash créé sur ${targetCollection}.name`);
     } catch (e: any) {
       addLog(`❌ Erreur Index: ${e}`);
@@ -80,7 +109,7 @@ export function JsonDbTester() {
     try {
       await collectionService.createCollection(targetCollection);
       addLog(`✅ Collection '${targetCollection}' prête.`);
-      await refreshItems();
+      await handleRefreshManual();
     } catch (e: any) {
       addLog(`❌ Erreur création collection: ${e}`);
     }
@@ -95,18 +124,9 @@ export function JsonDbTester() {
       const doc = JSON.parse(jsonInput);
       const saved = await collectionService.insertDocument(targetCollection, doc);
       addLog(`✅ Document inséré (ID: ${saved.id})`);
-      await refreshItems();
+      await handleRefreshManual();
     } catch (e: any) {
       addLog(`❌ Erreur insertion: ${e}`);
-    }
-  };
-
-  const refreshItems = async () => {
-    try {
-      const docs = await collectionService.listAll(targetCollection);
-      setItems(Array.isArray(docs) ? docs.reverse() : []);
-    } catch (e: any) {
-      setItems([]); // Collection n'existe pas encore
     }
   };
 
@@ -117,7 +137,6 @@ export function JsonDbTester() {
     }
     try {
       const start = performance.now();
-      // Recherche textuelle simple sur 'name'
       const query = createQuery(targetCollection).where('name', 'Contains', text).limit(20).build();
 
       const results = await collectionService.queryDocuments(targetCollection, query);

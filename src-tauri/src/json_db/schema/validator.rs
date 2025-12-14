@@ -1,13 +1,10 @@
 // FICHIER : src-tauri/src/json_db/schema/validator.rs
 
-use anyhow::{anyhow, Result};
-use serde_json::Value;
-// AJOUT : Import de Regex pour patternProperties
-use regex::Regex;
-use std::path::{Component, Path, PathBuf};
-
-use super::compute::{apply_x_compute_with_opts, ComputeOptions};
 use super::registry::SchemaRegistry;
+use anyhow::{anyhow, Result};
+use regex::Regex;
+use serde_json::Value;
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct SchemaValidator {
@@ -30,16 +27,8 @@ impl SchemaValidator {
     }
 
     pub fn compute_then_validate(&self, instance: &mut Value) -> Result<()> {
-        apply_x_compute_with_opts(
-            instance,
-            &self.schema,
-            &self.reg,
-            &self.root_uri,
-            ComputeOptions {
-                max_passes: 4,
-                strict_ptr: false,
-            },
-        )?;
+        // L'ancien moteur "x_compute" est désactivé.
+        // Les calculs sont désormais gérés par le Rules Engine dans manager.rs avant d'arriver ici.
         self.validate(instance)
     }
 

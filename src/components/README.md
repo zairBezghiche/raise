@@ -3,6 +3,8 @@
 Ce répertoire contient l'intégralité des interfaces utilisateur de GenAptitude.
 L'architecture suit une approche **modulaire** : chaque dossier représente un domaine fonctionnel distinct, à l'exception de `shared` (générique) et `layout` (structurel).
 
+Certains composants racines (comme les Testeurs) sont situés directement à la racine de `components/` pour un accès rapide aux outils de diagnostic.
+
 ---
 
 ## 🌳 Arborescence Complète
@@ -19,8 +21,12 @@ src/components/
 │   ├── MessageBubble.tsx     # Bulle de message (User/AI)
 │   └── SuggestionPanel.tsx   # Chips de suggestions
 │
+├── assurance/                # 🛡️ Tableau de bord Qualité & XAI
+│   └── AssuranceDashboard.tsx
+│
 ├── blockchain/               # 🔗 Notifications et visualisations Ledger
-│   └── BlockchainToast.tsx   # Notification style "Matrix"
+│   ├── BlockchainToast.tsx   # Notification style "Matrix"
+│   └── BlockchainView.tsx    # Vue de démo Ledger (Refactorisé)
 │
 ├── code-editor/              # 💻 Éditeur léger pour JSON/Scripts
 │   ├── CodeCompletion.tsx    # Popup d'autocomplétion
@@ -30,6 +36,12 @@ src/components/
 │
 ├── codegen/                  # ⚙️ Usine logicielle
 │   └── CodeGenerator.tsx     # Interface de génération de sources
+│
+├── cognitive/                # 🧠 Moteur Cognitif
+│   └── CognitiveAnalysis.tsx # Vue principale analyse
+│
+├── dashboard/                # 📊 Vue d'accueil (Refactorisé)
+│   └── DashboardView.tsx     # KPIs et Infos Système
 │
 ├── diagram-editor/           # ✏️ Canvas de modélisation visuelle
 │   ├── ConnectionTool.tsx    # Barre d'outils flottante
@@ -53,6 +65,14 @@ src/components/
 │   ├── ElementInspector.tsx  # Panneau de propriétés
 │   └── ModelNavigator.tsx    # Arbre du projet
 │
+├── rules_engine/             # 🧮 Moteur de Règles Réactif (GenRules)
+│   ├── InvoiceDemo.tsx       # Démo Facturation (Calculs & Lookup)
+│   ├── ModelRulesDemo.tsx    # Démo Ingénierie (Validation & Naming)
+│   └── RulesEngineDashboard.tsx # Conteneur de navigation
+│
+├── settings/                 # ⚙️ Configuration Système
+│   └── SettingsPage.tsx      # Paramètres IA & DB
+│
 ├── shared/                   # 🧱 Design System (Composants atomiques)
 │   ├── Button.tsx            # Bouton standard
 │   ├── Card.tsx              # Conteneur générique
@@ -62,11 +82,15 @@ src/components/
 │   ├── ThemeToggle.tsx       # Switch Dark/Light mode
 │   └── TreeView.tsx          # Composant d'arbre récursif
 │
-└── workflow-designer/        # 🔀 Orchestrateur de pipelines CI/CD
-    ├── ConnectionManager.tsx # Rendu des liens (SVG)
-    ├── ExecutionMonitor.tsx  # Console de logs
-    ├── NodeLibrary.tsx       # Sidebar des tâches
-    └── WorkflowCanvas.tsx    # Zone de travail Node-based
+├── workflow-designer/        # 🔀 Orchestrateur de pipelines CI/CD
+│   ├── ConnectionManager.tsx # Rendu des liens (SVG)
+│   ├── ExecutionMonitor.tsx  # Console de logs
+│   ├── NodeLibrary.tsx       # Sidebar des tâches
+│   └── WorkflowCanvas.tsx    # Zone de travail Node-based
+│
+# --- COMPOSANTS RACINES (OUTILS DIAGNOSTIC) ---
+├── CognitiveTester.tsx       # 🧪 Testeur du moteur WASM (Consistency)
+└── JsonDbTester.tsx          # 🗄️ Explorateur Bas Niveau JSON-DB (CRUD/Search)
 ```
 
 ---
@@ -87,8 +111,13 @@ Chaque sous-dossier contient son propre `README.md` détaillé expliquant :
 2.  **Atomiques (`shared/`)** :
     Les briques de base (Boutons, Inputs). Ils doivent être **purs** (pas de logique métier complexe) et réutilisables partout.
 
-3.  **Métiers (Les autres dossiers)** :
-    Contiennent la logique spécifique à une fonctionnalité (ex: `genetics` connaît le service d'optimisation, `model-viewer` connaît le format Arcadia).
+3.  **Métiers (Les dossiers thématiques)** :
+    Contiennent la logique spécifique à une fonctionnalité (ex: `rules_engine` dialogue avec le backend Rust pour les calculs, `model-viewer` connaît le format Arcadia).
+
+4.  **Outils de Diagnostic (Racine)** :
+
+    - **`JsonDbTester.tsx`** : Interface d'administration brute pour la base de données (Créer/Supprimer DB, Requêtes, Index).
+    - **`CognitiveTester.tsx`** : Interface de test pour le chargement dynamique de modules WASM et l'analyse de cohérence sur des données réelles ou simulées.
 
 ---
 
@@ -97,9 +126,3 @@ Chaque sous-dossier contient son propre `README.md` détaillé expliquant :
 - **Styles :** N'utilisez jamais de CSS global ou de classes arbitraires. Utilisez les variables définies dans `src/styles/variables.css` pour garantir le support du **Dark Mode**.
 - **Dépendances :** Un composant "Métier" peut utiliser des composants "Shared". Un composant "Shared" ne doit jamais importer un composant "Métier".
 - **État :** Si un composant a besoin d'accéder à l'état global (ex: Projet chargé), utilisez les Hooks personnalisés (`useModelStore`, `useSettingsStore`) plutôt que de propager les props sur 10 niveaux.
-
-<!-- end list -->
-
-```
-
-```

@@ -20,7 +20,7 @@ serde_json = "1.0"
 bincode = { version = "2.0.1", features = ["serde"] }
 
 # --- Validation & Traitement ---
-regex = "1.10" # <--- AJOUTÉ (Requis par schema/validator.rs)
+regex = "1.10"
 
 # --- Asynchrone & Runtime ---
 tokio = { version = "1.0", features = ["full"] }
@@ -33,6 +33,7 @@ dotenvy = "0.15"
 walkdir = "2"
 pathdiff = "0.2"
 url = "2.5"
+
 # Requis pour l'embarquement des schémas (file_storage.rs)
 include_dir = "0.7"
 dirs = "6.0.0"

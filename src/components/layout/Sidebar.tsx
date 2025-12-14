@@ -13,6 +13,9 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
     { id: 'model', label: 'Modélisation Arcadia', icon: '💠' },
     { id: 'diagram', label: 'Éditeur de Diagrammes', icon: '✏️' },
     { id: 'workflow', label: 'Workflow Designer', icon: '🔀' },
+
+    { id: 'rules-engine', label: 'Moteur de Règles', icon: '🧮' },
+
     { id: 'genetics', label: 'Optimisation Génétique', icon: '🧬' },
     { id: 'cognitive', label: 'Moteur Cognitif', icon: '🧠' },
     { id: 'codegen', label: 'Génération de Code', icon: '⚙️' },

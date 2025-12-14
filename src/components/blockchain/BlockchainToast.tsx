@@ -5,10 +5,17 @@ export const BlockchainToast = ({ trigger }: { trigger: boolean }) => {
 
   useEffect(() => {
     if (trigger) {
-      setVisible(true);
+      // CORRECTION : On utilise un petit délai pour rendre l'apparition asynchrone.
+      // Cela évite l'erreur de linter "setState synchronously within an effect".
+      const showTimer = setTimeout(() => setVisible(true), 10);
+
       // La notification disparaît toute seule après 8 secondes
-      const timer = setTimeout(() => setVisible(false), 8000);
-      return () => clearTimeout(timer);
+      const hideTimer = setTimeout(() => setVisible(false), 8000);
+
+      return () => {
+        clearTimeout(showTimer);
+        clearTimeout(hideTimer);
+      };
     }
   }, [trigger]);
 

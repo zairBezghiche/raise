@@ -1,182 +1,198 @@
-# Module json_db
+# Architecture JSON-DB (GenAptitude)
 
-> **Version :** 1.3
-> **Mise à jour :** Décembre 2025
-> **Type :** Moteur SGBD NoSQL Embarqué, Transactionnel & Sémantique.
+**JSON-DB** est le moteur de base de données embarqué, orienté document et sémantique, développé spécifiquement pour GenAptitude. Il combine la simplicité du stockage de fichiers JSON plats avec la robustesse d'une base de données transactionnelle (ACID) et la puissance du Web Sémantique (JSON-LD).
 
----
+## 🌍 Vue d'Ensemble
 
-## 📦 Vue d'Ensemble
+Le système est conçu en couches modulaires, allant du stockage physique bas niveau jusqu'à l'orchestration transactionnelle de haut niveau.
 
-Le module **json_db** est le cœur de persistance de la plateforme GenAptitude. Il s'agit d'une base de données orientée documents (JSON) qui hybride les caractéristiques d'un **SGBD NoSQL** classique avec celles d'un **Graphe de Connaissances (Knowledge Graph)** via JSON-LD.
+### Principes Clés
 
-Elle est conçue pour être :
-
-1.  **Souveraine** : Les données résident dans des fichiers standards (`.json`) lisibles par l'humain.
-2.  **Robuste** : Les transactions ACID garantissent l'intégrité via un journal (WAL).
-3.  **Intelligente** : Elle comprend la sémantique des données (Ontologie Arcadia) et offre un langage de requête SQL.
+- **Stockage Texte** : Chaque document est un fichier `.json` lisible et éditable par un humain.
+- **Architecture Sémantique** : Intégration native de JSON-LD pour lier les données à l'ontologie Arcadia (`oa:`, `sa:`, `la:`, etc.).
+- **Intégrité ACID** : Support des transactions multi-collections avec journalisation (WAL) et verrouillage.
+- **Réactivité** : Moteur de règles intégré (`GenRules`) calculant automatiquement les champs dérivés (prix, dates, statuts).
+- **Requêtes SQL** : Moteur de recherche supportant une syntaxe SQL standard pour filtrer et trier les données JSON.
 
 ---
 
-## 🏗️ Architecture Technique
+## 📂 Arborescence du Code Source
 
-### 1\. Organisation Physique
-
-Les données sont stockées selon la hiérarchie définie par la variable d'environnement `PATH_GENAPTITUDE_DOMAIN`.
+Voici la structure exhaustive des modules et fichiers composants le moteur :
 
 ```text
-<domain_root>/
-├── <space>/                  # Espace de travail (ex: "un2")
-│   ├── <database>/           # Base de données (ex: "_system")
-│   │   ├── _system.json      # Index Système (Catalogue des collections)
-│   │   ├── _wal/             # Write-Ahead Log (Journal des transactions)
-│   │   ├── schemas/v1/       # Registre des schémas JSON (Structure)
-│   │   └── collections/
-│   │       └── <collection>/ # (ex: "actors")
-│   │           ├── _meta.json        # Configuration & Index définis
-│   │           ├── _indexes/         # Index Binaires (.idx) Hash/BTree/Text
-│   │           ├── <uuid>.json       # Documents (JSON-LD compact)
-│   │           └── ...
+src-tauri/src/json_db/
+├── mod.rs                  // Point d'entrée du module global
+├── README.md               // Documentation générale (ce fichier)
+├── collections/            // Gestion des collections et cycle de vie
+│   ├── mod.rs              // Façade publique
+│   ├── manager.rs          // Orchestrateur (Règles + Validation + Indexation)
+│   ├── collection.rs       // Opérations I/O bas niveau sur les collections
+│   └── README.md
+├── indexes/                // Moteur d'indexation
+│   ├── mod.rs
+│   ├── manager.rs          // Gestionnaire du cycle de vie des index (Create/Drop)
+│   ├── driver.rs           // Abstraction I/O et formats binaires (Bincode)
+│   ├── hash.rs             // Implémentation Index Hash (HashMap)
+│   ├── btree.rs            // Implémentation Index BTree (BTreeMap)
+│   ├── text.rs             // Implémentation Index Textuel (Inversé)
+│   ├── paths.rs            // Gestion des chemins fichiers index
+│   └── README.md
+├── jsonld/                 // Moteur sémantique
+│   ├── mod.rs
+│   ├── processor.rs        // Algorithmes Expansion/Compaction/RDF
+│   ├── context.rs          // Gestion des contextes (@context)
+│   ├── vocabulary.rs       // Registre statique Arcadia (OA, SA, etc.)
+│   └── README.md
+├── query/                  // Moteur de recherche
+│   ├── mod.rs
+│   ├── sql.rs              // Parsing SQL (sqlparser)
+│   ├── parser.rs           // Parsing JSON Query & Builder
+│   ├── optimizer.rs        // Optimisation des plans d'exécution (Sélectivité)
+│   ├── executor.rs         // Exécution (Scan, Filter, Sort, Project)
+│   └── README.md
+├── schema/                 // Validation structurelle
+│   ├── mod.rs
+│   ├── registry.rs         // Chargement et cache des schémas JSON
+│   ├── validator.rs        // Validation récursive (Draft 2020-12 subset)
+│   └── README.md
+├── storage/                // Persistance physique
+│   ├── mod.rs              // Façade StorageEngine
+│   ├── file_storage.rs     // I/O atomique et embedded assets
+│   ├── cache.rs            // Cache LRU thread-safe
+│   ├── compression.rs      // (Placeholder) Compression future
+│   └── README.md
+└── transactions/           // Moteur ACID
+    ├── mod.rs              // Types de transactions (Request, Operation)
+    ├── manager.rs          // Gestionnaire de transactions (Execute, Commit)
+    ├── wal.rs              // Write-Ahead Log (Journalisation)
+    ├── lock_manager.rs     // Gestion des verrous (Collection-level)
+    ├── tests.rs            // Tests d'intégration transactionnels
+    └── README.md
 ```
 
-### 2\. La Stack Logicielle
+---
 
-Le moteur est divisé en couches de responsabilité distinctes :
+## 🧩 Modules du Système
 
-| Couche          | Module                 | Rôle Principal                                                                                      |
-| :-------------- | :--------------------- | :-------------------------------------------------------------------------------------------------- |
-| **Interface**   | `collections::manager` | Point d'entrée CRUD. Orchestre la validation, la sémantique et la persistance.                      |
-| **Transaction** | `transactions`         | Garantit l'atomicité (ACID). Gère le verrouillage (`LockManager`) et le WAL.                        |
-| **Sémantique**  | `jsonld`               | **Nouveau**. Enrichit les données (`@context`), valide les types (`@type`) et gère l'expansion RDF. |
-| **Requête**     | `query`                | **Nouveau**. Moteur SQL (`SELECT`, `WHERE`, `ORDER BY`), Parseur et Exécuteur avec Projections.     |
-| **Indexation**  | `indexes`              | Maintient des structures de recherche rapides (Hash, BTree) synchronisées avec les données.         |
-| **Stockage**    | `storage`              | Gestion bas niveau des fichiers, I/O atomiques et cache.                                            |
+### 1\. Storage (`src/json_db/storage`)
+
+**La Couche Physique.**
+Gère l'interaction avec le système de fichiers.
+
+- **Rôle** : Lecture/Écriture atomique des fichiers, gestion des dossiers (DB/Collection), déploiement automatique des schémas par défaut.
+- **Performance** : Intègre un cache LRU thread-safe pour accélérer les lectures fréquentes.
+- **Sécurité** : Utilise des écritures atomiques (fichier `.tmp` + rename) pour éviter la corruption.
+
+### 2\. Schema (`src/json_db/schema`)
+
+**La Validation Structurelle.**
+Garantit que les documents respectent leur contrat d'interface.
+
+- **Rôle** : Validation JSON Schema (Draft 2020-12) légère.
+- **Features** : Résolution des références `$ref` via un registre central (`db://...`), validation des types et des motifs (`patternProperties`).
+
+### 3\. JSON-LD (`src/json_db/jsonld`)
+
+**Le Moteur Sémantique.**
+Transforme les objets JSON en graphes de connaissances liés.
+
+- **Rôle** : Expansion/Compaction des clés, gestion des contextes (`@context`) et validation ontologique.
+- **Ontologie** : Embarque les définitions Arcadia (OA, SA, LA, PA, EPBS, DATA) dans un registre vocabulaire.
+
+### 4\. Indexes (`src/json_db/indexes`)
+
+**L'Accélération.**
+Permet des recherches rapides sans scanner tous les fichiers.
+
+- **Types** : Hash (Egalité), BTree (Plages/Tri), Text (Recherche mots-clés).
+- **Maintenance** : Mis à jour atomiquement en temps réel lors des écritures via un driver générique.
+
+### 5\. Query (`src/json_db/query`)
+
+**Le Moteur de Recherche.**
+Interroge la base de données.
+
+- **Interface** : Supporte SQL (`SELECT * FROM users WHERE age > 18`) et un QueryBuilder fluide.
+- **Optimisation** : Réorganise dynamiquement les filtres par sélectivité (coût) pour accélérer l'exécution.
+
+### 6\. Collections (`src/json_db/collections`)
+
+**L'Orchestrateur.**
+La façade principale pour manipuler les données.
+
+- **Rôle** : Coordonne le cycle de vie d'un document. C'est ici que réside le moteur de règles **GenRules**.
+- **Pipeline** : Injection ID -\> Règles Métier -\> Validation Schema -\> Enrichissement Sémantique -\> Persistance.
+
+### 7\. Transactions (`src/json_db/transactions`)
+
+**La Sécurité des Données.**
+Gère les opérations atomiques complexes.
+
+- **ACID** : Utilise un Write-Ahead Log (WAL) pour garantir la durabilité et un LockManager pour l'isolation.
+- **Smart API** : Offre des méthodes de haut niveau pour gérer les insertions, mises à jour et imports en masse de manière transactionnelle.
 
 ---
 
-## 🧠 Couche Sémantique & JSON-LD
+## 🔄 Flux de Données (Pipeline d'Écriture)
 
-C'est l'innovation majeure de la version actuelle. La base de données ne stocke pas des objets "muets", mais des concepts liés à l'ontologie **Arcadia**.
+Lorsqu'une transaction `Insert` ou `Update` est soumise, le document traverse le pipeline suivant :
 
-### Cycle de Vie Sémantique
-
-Lorsqu'un document est inséré via `insert_with_schema` :
-
-1.  **Validation Structurelle** : Vérification contre le JSON Schema (champs requis, formats).
-2.  **Enrichissement** : Injection automatique du `@context` par défaut si absent.
-    ```json
-    "@context": { "oa": "https://genaptitude.io/ontology/arcadia/oa#", ... }
-    ```
-3.  **Validation Sémantique** : Le `JsonLdProcessor` analyse le champ `@type`.
-    - Il étend le terme (ex: `oa:Actor` -\> `https://...#OperationalActor`).
-    - Il vérifie l'existence de ce concept dans le `VocabularyRegistry` (Code compilé).
-    - Si le concept est inconnu, un warning est émis (ou une erreur en mode strict).
-
-Cela garantit que toutes les données stockées sont conformes au méta-modèle métier.
+1.  **Transaction Manager** : Reçoit la requête, acquiert les verrous sur les collections concernées et écrit l'intention dans le WAL.
+2.  **Collections Manager** : Prépare le document (injection ID/Dates).
+3.  **GenRules Engine** : Exécute les règles métier (`x_rules`) définies dans le schéma pour calculer les champs dérivés.
+4.  **Schema Validator** : Vérifie la structure stricte du document.
+5.  **JSON-LD Processor** : Vérifie la cohérence sémantique (`@type` connu).
+6.  **Storage Engine** : Écrit le fichier JSON de manière atomique sur le disque.
+7.  **Index Manager** : Met à jour les index (Hash, BTree, Text) correspondant aux changements.
+8.  **Commit** : Si tout est succès, le WAL est nettoyé et les verrous libérés.
 
 ---
 
-## ⚡ Transactions Intelligentes
+## 🛠️ Exemple d'Utilisation Globale
 
-Le `TransactionManager` supporte deux modes de fonctionnement :
-
-### 1\. Mode "Smart" (Haut Niveau)
-
-Utilisé par le CLI et le Frontend. Il permet de décrire des **intentions** plutôt que des opérations brutes.
-
-- **Résolution de Références** : Permet de cibler un document par une clé métier (ex: `handle`) plutôt que par son UUID. Le moteur effectue la recherche (`QueryEngine`) avant d'appliquer la modification.
-- **Auto-Completion** : Génère les UUIDs manquants et injecte les métadonnées techniques.
-- **Opérations supportées** : `Insert`, `Update` (avec Merge intelligent), `Delete`, `InsertFrom` (fichier).
-
-### 2\. Mode ACID (Bas Niveau)
-
-Assure la sécurité des données :
-
-- **Isolation** : Verrouillage (`RwLock`) au niveau Collection.
-- **Durabilité** : Écriture dans le WAL avant modification des fichiers de données.
-- **Atomicité** : En cas d'erreur au milieu d'une transaction, un **Rollback** automatique restaure l'état précédent.
-
----
-
-## 🔍 Moteur de Requête SQL
-
-Le module `query` permet d'interroger la base avec une syntaxe SQL standard.
-
-### Fonctionnalités
-
-- **Projection** : `SELECT name, age` (renvoie uniquement les champs demandés).
-- **Filtrage** : `WHERE kind = 'human' AND tags LIKE 'admin'`. Supporte les opérateurs logiques imbriqués.
-- **Tri** : `ORDER BY createdAt DESC`.
-- **Pagination** : Gestion interne via `limit` et `offset`.
-
-### Exemple d'utilisation (Rust)
+Voici comment les modules interagissent pour insérer un utilisateur et le requêter.
 
 ```rust
-let q = parse_sql("SELECT handle, kind FROM actors WHERE kind = 'robot'")?;
-let result = query_engine.execute_query(q).await?;
+use crate::json_db::storage::JsonDbConfig;
+use crate::json_db::transactions::{TransactionManager, TransactionRequest};
+use crate::json_db::query::sql::parse_sql;
+use crate::json_db::query::QueryEngine;
+use crate::json_db::collections::manager::CollectionsManager;
+use crate::json_db::storage::StorageEngine;
+use serde_json::json;
 
-for doc in result.documents {
-    println!("{}", doc); // {"handle": "robot-01", "kind": "robot"}
+async fn demo() -> anyhow::Result<()> {
+    let config = JsonDbConfig::new("/tmp/genaptitude_data");
+    let space = "demo_space";
+    let db = "demo_db";
+
+    // 1. Transaction : Insertion sécurisée
+    let tx_mgr = TransactionManager::new(&config, space, db);
+    tx_mgr.execute_smart(vec![
+        TransactionRequest::Insert {
+            collection: "users".to_string(),
+            id: None, // Auto-généré
+            document: json!({
+                "name": "Alice",
+                "role": "admin",
+                "age": 30
+            }),
+        }
+    ]).await?;
+
+    // 2. Requête : Recherche SQL
+    let sql = "SELECT name, age FROM users WHERE role = 'admin' ORDER BY age DESC";
+    let query = parse_sql(sql)?;
+
+    // 3. Exécution
+    let storage = StorageEngine::new(config.clone());
+    let col_mgr = CollectionsManager::new(&storage, space, db);
+    let engine = QueryEngine::new(&col_mgr);
+
+    let result = engine.execute_query(query).await?;
+
+    println!("Résultats : {:?}", result.documents);
+    Ok(())
 }
 ```
-
----
-
-## 🚀 Indexation Automatique
-
-Le moteur maintient automatiquement les index définis dans `_meta.json` lors des opérations CRUD (`insert`, `update`, `delete`).
-
-- **Transparence** : L'utilisateur n'a pas à gérer les index manuellement.
-- **Types supportés** :
-  - `Hash` : Pour les recherches exactes (IDs, Handles).
-  - `BTree` : Pour les tris et les plages de valeurs.
-  - `Text` : Pour la recherche de mots-clés (tokenisation simple).
-
----
-
-## 💡 Guide du Développeur
-
-### Insertion d'un Document
-
-```rust
-use genaptitude::json_db::collections::manager::CollectionsManager;
-
-let mgr = CollectionsManager::new(&storage, "un2", "_system");
-
-let doc = json!({
-    "@type": "oa:OperationalActor", // Sera validé sémantiquement
-    "handle": "user-01",
-    "displayName": "Utilisateur Test"
-});
-
-// 1. Calcul ID & Dates -> 2. Validation Schema -> 3. Validation Sémantique -> 4. Indexation -> 5. Disque
-mgr.insert_with_schema("actors", doc)?;
-```
-
-### Exécution d'une Transaction Complexe
-
-```rust
-use genaptitude::json_db::transactions::{TransactionManager, TransactionRequest};
-
-let tm = TransactionManager::new(&config, "un2", "_system");
-
-let ops = vec![
-    TransactionRequest::Update {
-        collection: "actors".to_string(),
-        id: None,
-        handle: Some("admin".to_string()), // Résolution automatique
-        document: json!({ "x_active": true }) // Merge partiel
-    }
-];
-
-// Exécution asynchrone sécurisée
-tm.execute_smart(ops).await?;
-```
-
----
-
-## ⚠️ Limitations Connues
-
-1.  **Jointures** : Le moteur SQL ne supporte pas encore les `JOIN`.
-2.  **Concurrence** : Le verrouillage est au niveau Collection (pas Document).
-3.  **SQL Parser** : Le support de `LIMIT/OFFSET` en SQL pur est temporairement désactivé (utiliser l'API Rust `Query` struct).

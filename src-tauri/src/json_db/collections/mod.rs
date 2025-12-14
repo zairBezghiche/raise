@@ -3,7 +3,7 @@
 pub mod collection;
 pub mod manager;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -48,18 +48,32 @@ pub fn insert_with_schema(
     let root_uri = reg.uri(schema_rel);
     let validator = SchemaValidator::compile_with_registry(&root_uri, &reg)?;
 
-    validator.compute_then_validate(&mut doc)?;
-
     let collection_name = collection_from_schema_rel(schema_rel);
 
-    // On s'assure que l'ID est présent (normalement fait par x_compute)
-    let id = doc.get("id").and_then(|v| v.as_str()).unwrap_or("unknown"); // Devrait être géré par le schéma
+    // --- CORRECTION ICI : Ajout de cfg, space, db ---
+    manager::apply_business_rules(
+        cfg,              // 1. Config DB (Nouveau)
+        space,            // 2. Espace (Nouveau)
+        db,               // 3. Nom DB (Nouveau)
+        &collection_name, // 4. Nom Collection
+        &mut doc,         // 5. Document mutable
+        None,             // 6. Ancien doc (None car insertion)
+        &reg,             // 7. Registre
+        &root_uri,        // 8. URI du schéma
+    )
+    .context("Rules Engine")?;
+    // -----------------------------------------------
 
-    collection::create_document(cfg, space, db, &collection_name, id, &doc)?;
+    validator.compute_then_validate(&mut doc)?;
 
+    let id = doc
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Document ID manquant"))?;
+
+    collection::update_document(cfg, space, db, &collection_name, id, &doc)?;
     Ok(doc)
 }
-
 pub fn insert_raw(
     cfg: &JsonDbConfig,
     space: &str,

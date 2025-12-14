@@ -1,6 +1,5 @@
 //! Validation/instanciation de schémas JSON (impl. légère, sans lib externe)
 
-pub mod compute;
 pub mod registry;
 pub use registry::SchemaRegistry;
 

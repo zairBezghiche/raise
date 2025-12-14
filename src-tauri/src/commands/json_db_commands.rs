@@ -1,9 +1,10 @@
 // FICHIER : src-tauri/src/commands/json_db_commands.rs
 
-use crate::json_db::collections::manager::CollectionsManager;
+use crate::json_db::collections::manager::{self, CollectionsManager};
 use crate::json_db::query::{Query, QueryEngine, QueryResult};
+use crate::json_db::schema::SchemaRegistry; // <--- AJOUTÉ
 use crate::json_db::storage::{file_storage, StorageEngine};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::{command, State};
 
 // Helper pour instancier le manager rapidement
@@ -80,7 +81,7 @@ pub async fn jsondb_drop_collection(
         .map_err(|e| e.to_string())
 }
 
-// --- GESTION INDEXES (NOUVEAU) ---
+// --- GESTION INDEXES ---
 
 #[command]
 pub async fn jsondb_create_index(
@@ -109,6 +110,63 @@ pub async fn jsondb_drop_index(
     manager
         .drop_index(&collection, &field)
         .map_err(|e| e.to_string())
+}
+
+// --- MOTEUR DE RÈGLES (NOUVEAU) ---
+
+/// Simule l'application des règles métier sur un document brouillon
+/// sans le sauvegarder en base. Idéal pour le feedback UI temps réel.
+#[command]
+pub async fn jsondb_evaluate_draft(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+    collection: String,
+    mut doc: Value,
+) -> Result<Value, String> {
+    // 1. Charger le registre de schémas
+    let registry = SchemaRegistry::from_db(&storage.config, &space, &db)
+        .map_err(|e| format!("Erreur chargement registre: {}", e))?;
+
+    // 2. Trouver l'URI du schéma via _meta.json
+    let meta_path = storage
+        .config
+        .db_collection_path(&space, &db, &collection)
+        .join("_meta.json");
+
+    let schema_uri = if meta_path.exists() {
+        let content = std::fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+        let meta: Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        meta.get("schema")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        return Err(format!(
+            "Collection '{}' non initialisée (pas de _meta.json)",
+            collection
+        ));
+    };
+
+    if schema_uri.is_empty() {
+        // Pas de schéma, on retourne le doc tel quel
+        return Ok(doc);
+    }
+
+    // 3. Exécuter le moteur de règles (GenRules)
+    manager::apply_business_rules(
+        &storage.config,
+        &space,
+        &db,
+        &collection,
+        &mut doc,
+        None, // Pas d'ancien document (c'est une simulation stateless)
+        &registry,
+        &schema_uri,
+    )
+    .map_err(|e| format!("Erreur exécution règles: {}", e))?;
+
+    Ok(doc)
 }
 
 // --- CRUD DOCUMENTS ---
@@ -209,4 +267,163 @@ pub async fn jsondb_execute_sql(
         .map_err(|e| format!("SQL Parse Error: {}", e))?;
     let engine = QueryEngine::new(&manager);
     engine.execute_query(query).await.map_err(|e| e.to_string())
+}
+
+// --- UTILITAIRE DE DÉMO ---
+#[command]
+pub async fn jsondb_init_demo_rules(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+) -> Result<(), String> {
+    let mgr = mgr(&storage, &space, &db)?;
+    mgr.init_db().map_err(|e| e.to_string())?;
+
+    // 1. Créer le User de test
+    mgr.create_collection("users", None)
+        .map_err(|e| e.to_string())?;
+    let user_doc = json!({ "id": "u_dev", "name": "Alice Dev", "tjm": 500.0 });
+    mgr.insert_raw("users", &user_doc)
+        .map_err(|e| e.to_string())?;
+
+    // 2. Écrire le schéma INVOICES avec les X_RULES sur le disque
+    // C'est l'étape critique : écrire le fichier physique pour que le Manager le trouve.
+    let schema_content = json!({
+        "type": "object",
+        "properties": {
+            "user_id": { "type": "string" },
+            "days": { "type": "number" },
+            "created_at": { "type": "string" },
+            "total": { "type": "number" },
+            "due_at": { "type": "string" },
+            "ref": { "type": "string" }
+        },
+        "x_rules": [
+            {
+                "id": "calc_total_lookup",
+                "target": "total",
+                "expr": {
+                    "mul": [
+                        { "var": "days" },
+                        { "lookup": { "collection": "users", "id": { "var": "user_id" }, "field": "tjm" } }
+                    ]
+                }
+            },
+            {
+                "id": "calc_due_date",
+                "target": "due_at",
+                "expr": { "date_add": { "date": { "var": "created_at" }, "days": { "val": 30 } } }
+            },
+            {
+                "id": "gen_ref",
+                "target": "ref",
+                "expr": {
+                    "concat": [
+                        { "val": "INV-" },
+                        { "upper": { "var": "user_id" } },
+                        { "val": "-" },
+                        { "var": "total" }
+                    ]
+                }
+            }
+        ]
+    });
+
+    // On force l'écriture du fichier schema dans v1/invoices/default.json
+    let schema_path = storage
+        .config
+        .db_schemas_root(&space, &db)
+        .join("v1/invoices/default.json");
+    if let Some(parent) = schema_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(
+        &schema_path,
+        serde_json::to_string_pretty(&schema_content).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 3. Créer la collection invoices liée à ce schéma
+    let schema_uri = format!("db://{}/{}/schemas/v1/invoices/default.json", space, db);
+    mgr.create_collection("invoices", Some(schema_uri))
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[command]
+pub async fn jsondb_init_model_rules(
+    storage: State<'_, StorageEngine>,
+    space: String,
+    db: String,
+) -> Result<(), String> {
+    let mgr = mgr(&storage, &space, &db)?;
+    mgr.init_db().map_err(|e| e.to_string())?;
+
+    // 1. Définition du Schéma pour une 'LogicalFunction'
+    // Règles :
+    // - R1: full_path = parent_pkg + "::" + name
+    // - R2: compliance = Si name commence par "LF_" et majuscules -> "OK" Sinon "ERROR"
+    let schema_content = json!({
+        "type": "object",
+        "properties": {
+            "name": { "type": "string" },
+            "parent_pkg": { "type": "string" },
+            "description": { "type": "string" },
+            "full_path": { "type": "string" },
+            "compliance": { "type": "string" }
+        },
+        "x_rules": [
+            {
+                "id": "compute_path",
+                "target": "full_path",
+                "expr": {
+                    "concat": [
+                        { "var": "parent_pkg" },
+                        { "val": "::" },
+                        { "var": "name" }
+                    ]
+                }
+            },
+            {
+                "id": "check_naming",
+                "target": "compliance",
+                "expr": {
+                    "if": {
+                        "condition": {
+                            "regex_match": {
+                                "value": { "var": "name" },
+                                "pattern": { "val": "^LF_[A-Z0-9_]+$" }
+                            }
+                        },
+                        "then_branch": { "val": "✅ VALIDE" },
+                        "else_branch": { "val": "❌ NON_CONFORME (Doit commencer par LF_ et être en MAJ)" }
+                    }
+                }
+            }
+        ]
+    });
+
+    // 2. Écriture sur disque (v1/la/functions.json)
+    // On simule une structure propre à Arcadia (Logical Architecture)
+    let schema_path = storage
+        .config
+        .db_schemas_root(&space, &db)
+        .join("v1/la/functions.json");
+    if let Some(parent) = schema_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(
+        &schema_path,
+        serde_json::to_string_pretty(&schema_content).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    // 3. Création de la collection associée
+    let schema_uri = format!("db://{}/{}/schemas/v1/la/functions.json", space, db);
+
+    // On ignore l'erreur si la collection existe déjà
+    let _ = mgr.create_collection("logical_functions", Some(schema_uri));
+
+    Ok(())
 }

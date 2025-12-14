@@ -1,0 +1,4 @@
+# FICHIER : .eslintignore
+node_modules
+dist
+src-tauri/target

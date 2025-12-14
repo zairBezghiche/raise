@@ -16,24 +16,27 @@ fn schema_instantiate_validate_minimal() {
     // 1) S'assurer que la DB existe et contient les schémas
     ensure_db_exists(cfg, space, db);
 
-    // 2) Charger le registre (depuis la DB peuplée)
+    // 2) Charger le registre
     let reg = SchemaRegistry::from_db(cfg, space, db).expect("registry from DB");
 
     // URI du schéma à tester
     let root_uri = reg.uri("actors/actor.schema.json");
 
-    // Si le schéma n'est pas trouvé (mock failed), on skip ou on fail proprement
     if reg.get_by_uri(&root_uri).is_none() {
-        // On peut tenter de créer un schéma à la volée pour que le test passe même en mode dégradé
-        // Mais ensure_db_exists devrait avoir fait le travail (copie ou mock)
         panic!("Schéma introuvable dans le registre de test: {}", root_uri);
     }
 
     let validator =
         SchemaValidator::compile_with_registry(&root_uri, &reg).expect("compile failed");
 
-    // 3) Document minimal
+    // 3) Document minimal avec TOUS les champs requis (Id, Dates, $schema)
+    // CORRECTION : On fournit un document "complet" car le Validator ne fait plus d'injection auto.
     let mut doc = json!({
+      "$schema": root_uri, // Requis
+      "id": uuid::Uuid::new_v4().to_string(), // Requis
+      "createdAt": chrono::Utc::now().to_rfc3339(), // Requis
+      "updatedAt": chrono::Utc::now().to_rfc3339(), // Requis
+
       "handle": "devops-engineer",
       "displayName": "Ingénieur DevOps",
       "label": { "fr": "Ingénieur DevOps", "en": "DevOps Engineer" },
@@ -48,10 +51,7 @@ fn schema_instantiate_validate_minimal() {
         .expect("compute + validate failed");
 
     // 5) Vérifications
-    assert!(
-        doc.get("id").is_some() || doc.get("_id").is_some(),
-        "id manquant"
-    );
+    assert!(doc.get("id").is_some(), "id manquant");
     assert!(doc.get("createdAt").is_some(), "createdAt manquant");
     assert!(doc.get("updatedAt").is_some(), "updatedAt manquant");
 }

@@ -3,9 +3,13 @@
 use crate::json_db::indexes::IndexManager;
 use crate::json_db::jsonld::{JsonLdProcessor, VocabularyRegistry};
 use crate::json_db::schema::{SchemaRegistry, SchemaValidator};
-use crate::json_db::storage::{file_storage, StorageEngine};
+use crate::json_db::storage::{file_storage, JsonDbConfig, StorageEngine};
+use crate::rules_engine::{DataProvider, EvalError, Evaluator, Rule, RuleStore};
+
 use anyhow::{anyhow, Context, Result};
+use chrono::Utc;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::fs;
 use uuid::Uuid;
 
@@ -69,11 +73,22 @@ impl<'a> CollectionsManager<'a> {
             if !obj.contains_key("$schema") {
                 obj.insert("$schema".to_string(), Value::String(expected_uri.clone()));
             }
+            // Injection de l'ID si manquant (requis par le schéma strict)
+            if !obj.contains_key("id") {
+                obj.insert("id".to_string(), Value::String(Uuid::new_v4().to_string()));
+            }
+            // Injection des dates (requises par le schéma strict)
+            let now = Utc::now().to_rfc3339();
+            if !obj.contains_key("createdAt") {
+                obj.insert("createdAt".to_string(), Value::String(now.clone()));
+            }
+            if !obj.contains_key("updatedAt") {
+                obj.insert("updatedAt".to_string(), Value::String(now));
+            }
         }
 
         let reg = SchemaRegistry::from_db(&self.storage.config, &self.space, &self.db)?;
 
-        // --- DEBUG & DIAGNOSTIC ---
         let found_uri = if reg.get_by_uri(&expected_uri).is_some() {
             Some(expected_uri.clone())
         } else {
@@ -97,20 +112,9 @@ impl<'a> CollectionsManager<'a> {
             let mut msg =
                 "🔥 CRITIQUE: Impossible de trouver le schéma de l'index système !\n".to_string();
             msg.push_str(&format!("   -> URI Attendue : {}\n", expected_uri));
-            msg.push_str(&format!(
-                "   -> Chemin Physique scanné : {:?}\n",
-                self.storage.config.db_schemas_root(&self.space, &self.db)
-            ));
-            msg.push_str("   -> Clés disponibles dans le registre :\n");
-
-            let mut keys = reg.list_uris();
-            keys.sort();
-            if keys.is_empty() {
-                msg.push_str("      (REGISTRE VIDE - Aucun fichier .json trouvé)\n");
-            } else {
-                for k in keys {
-                    msg.push_str(&format!("      - {}\n", k));
-                }
+            msg.push_str("   -> (Voir logs précédents pour détails)\n");
+            if reg.list_uris().is_empty() {
+                msg.push_str("      (REGISTRE VIDE)\n");
             }
             panic!("{}", msg);
         }
@@ -154,7 +158,6 @@ impl<'a> CollectionsManager<'a> {
         Ok(())
     }
 
-    // --- GESTION DES INDEX (AJOUTÉ) ---
     pub fn create_index(&self, collection: &str, field: &str, kind: &str) -> Result<()> {
         let mut idx_mgr = IndexManager::new(self.storage, &self.space, &self.db);
         idx_mgr.create_index(collection, field, kind)
@@ -164,7 +167,6 @@ impl<'a> CollectionsManager<'a> {
         let mut idx_mgr = IndexManager::new(self.storage, &self.space, &self.db);
         idx_mgr.drop_index(collection, field)
     }
-    // ----------------------------------
 
     fn resolve_schema_from_index(&self, col_name: &str) -> Result<String> {
         let sys_path = self
@@ -372,11 +374,6 @@ impl<'a> CollectionsManager<'a> {
 
     pub fn insert_with_schema(&self, collection: &str, mut doc: Value) -> Result<Value> {
         self.prepare_document(collection, &mut doc)?;
-        if doc.get("id").is_none() {
-            if let Some(obj) = doc.as_object_mut() {
-                obj.insert("id".to_string(), Value::String(Uuid::new_v4().to_string()));
-            }
-        }
         self.insert_raw(collection, &doc)?;
         Ok(doc)
     }
@@ -420,6 +417,21 @@ impl<'a> CollectionsManager<'a> {
     }
 
     fn prepare_document(&self, collection: &str, doc: &mut Value) -> Result<()> {
+        // --- 1. INJECTION AUTOMATIQUE (ID / CreatedAt / UpdatedAt) ---
+        if let Some(obj) = doc.as_object_mut() {
+            if !obj.contains_key("id") {
+                obj.insert("id".to_string(), Value::String(Uuid::new_v4().to_string()));
+            }
+            let now = Utc::now().to_rfc3339();
+            if !obj.contains_key("createdAt") {
+                obj.insert("createdAt".to_string(), Value::String(now.clone()));
+            }
+            if !obj.contains_key("updatedAt") {
+                obj.insert("updatedAt".to_string(), Value::String(now));
+            }
+        }
+        // -------------------------------------------------
+
         let meta_path = self
             .storage
             .config
@@ -443,6 +455,21 @@ impl<'a> CollectionsManager<'a> {
                     }
                 }
                 let reg = SchemaRegistry::from_db(&self.storage.config, &self.space, &self.db)?;
+
+                // MOTEUR DE RÈGLES
+                if let Err(e) = apply_business_rules(
+                    &self.storage.config,
+                    &self.space,
+                    &self.db,
+                    collection,
+                    doc,
+                    None,
+                    &reg,
+                    &uri,
+                ) {
+                    eprintln!("⚠️ Erreur règles métier (non bloquant): {}", e);
+                }
+
                 let validator = SchemaValidator::compile_with_registry(&uri, &reg)?;
                 validator.compute_then_validate(doc)?;
             }
@@ -478,4 +505,168 @@ impl<'a> CollectionsManager<'a> {
         }
         Ok(())
     }
+}
+
+struct DbDataProvider<'a> {
+    cfg: &'a JsonDbConfig,
+    space: &'a str,
+    db: &'a str,
+}
+
+impl<'a> DataProvider for DbDataProvider<'a> {
+    fn get_value(&self, collection: &str, id: &str, field: &str) -> Option<Value> {
+        if let Ok(doc) = collection::read_document(self.cfg, self.space, self.db, collection, id) {
+            let ptr = if field.starts_with('/') {
+                field.to_string()
+            } else {
+                format!("/{}", field.replace('.', "/"))
+            };
+            return doc.pointer(&ptr).cloned();
+        }
+        None
+    }
+}
+
+/// Fonction utilitaire statique pour appliquer les règles sans instancier tout le Manager
+#[allow(clippy::too_many_arguments)] // Correction: Suppression du warning
+pub fn apply_business_rules(
+    cfg: &JsonDbConfig,
+    space: &str,
+    db: &str,
+    collection_name: &str,
+    doc: &mut Value,
+    old_doc: Option<&Value>,
+    registry: &SchemaRegistry,
+    schema_uri: &str,
+) -> Result<()> {
+    let mut store = RuleStore::new();
+
+    if let Some(schema) = registry.get_by_uri(schema_uri) {
+        if let Some(rules_array) = schema.get("x_rules").and_then(|v| v.as_array()) {
+            for (index, rule_val) in rules_array.iter().enumerate() {
+                match serde_json::from_value::<Rule>(rule_val.clone()) {
+                    Ok(rule) => store.register_rule(collection_name, rule),
+                    Err(e) => {
+                        eprintln!("⚠️ Règle invalide dans le schéma (index {}): {}", index, e);
+                    }
+                }
+            }
+        }
+    }
+
+    let provider = DbDataProvider { cfg, space, db };
+
+    let mut current_changes = compute_diff(doc, old_doc);
+    let mut passes = 0;
+    const MAX_PASSES: usize = 10;
+
+    while !current_changes.is_empty() && passes < MAX_PASSES {
+        let rules = store.get_impacted_rules(collection_name, &current_changes);
+
+        if rules.is_empty() {
+            break;
+        }
+
+        let mut next_changes = HashSet::new();
+
+        for rule in rules {
+            match Evaluator::evaluate(&rule.expr, doc, &provider) {
+                Ok(result) => {
+                    if set_value_by_path(doc, &rule.target, result) {
+                        next_changes.insert(rule.target.clone());
+                    }
+                }
+                Err(EvalError::VarNotFound(_)) => continue,
+                Err(e) => return Err(anyhow!("Erreur calcul règle '{}': {}", rule.id, e)),
+            }
+        }
+
+        current_changes = next_changes;
+        passes += 1;
+    }
+
+    if passes >= MAX_PASSES {
+        eprintln!("⚠️ Attention : Limite de passes atteinte dans les règles");
+    }
+
+    Ok(())
+}
+
+fn compute_diff(new_doc: &Value, old_doc: Option<&Value>) -> HashSet<String> {
+    let mut changes = HashSet::new();
+    find_changes("", new_doc, old_doc, &mut changes);
+    changes
+}
+
+fn find_changes(
+    path: &str,
+    new_val: &Value,
+    old_val: Option<&Value>,
+    changes: &mut HashSet<String>,
+) {
+    if let Some(old) = old_val {
+        if new_val == old {
+            return;
+        }
+    }
+
+    if !path.is_empty() {
+        changes.insert(path.to_string());
+    }
+
+    match (new_val, old_val) {
+        (Value::Object(new_map), Some(Value::Object(old_map))) => {
+            for (k, v) in new_map {
+                let new_path = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", path, k)
+                };
+                find_changes(&new_path, v, old_map.get(k), changes);
+            }
+        }
+        (Value::Object(new_map), None) => {
+            for (k, v) in new_map {
+                let new_path = if path.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}.{}", path, k)
+                };
+                find_changes(&new_path, v, None, changes);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn set_value_by_path(doc: &mut Value, path: &str, value: Value) -> bool {
+    let parts: Vec<&str> = path.split('.').collect();
+    let mut current = doc;
+
+    for (i, part) in parts.iter().enumerate() {
+        if i == parts.len() - 1 {
+            if let Some(obj) = current.as_object_mut() {
+                let old_val = obj.get(*part);
+                if old_val != Some(&value) {
+                    obj.insert(part.to_string(), value);
+                    return true;
+                }
+                return false;
+            } else {
+                return false;
+            }
+        } else {
+            if !current.is_object() {
+                *current = json!({});
+            }
+            if current.get(*part).is_none() {
+                current
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(part.to_string(), json!({}));
+            }
+            current = current.get_mut(*part).unwrap();
+        }
+    }
+    false
 }
