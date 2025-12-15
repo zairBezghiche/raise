@@ -4,6 +4,7 @@ variables:
   CARGO_TERM_COLOR: always
   # On utilise le dossier courant pour éviter les soucis de cache partagé
   CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+  CARGO_BUILD_JOBS: "4"
 
 # --- CONFIGURATION GLOBALE ---
 default:
