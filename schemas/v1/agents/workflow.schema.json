@@ -5,6 +5,11 @@
   "description": "Graph/DAG des étapes métier: gates HITL/policy, appels MCP, mémoire, etc.",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "$ref": "../../common/base.schema.json"
+    }
+  ],
   "properties": {
     "nodes": {
       "type": "array",

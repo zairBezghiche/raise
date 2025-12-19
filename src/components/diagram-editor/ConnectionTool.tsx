@@ -1,10 +1,11 @@
-import { useState } from 'react';
+export type ToolType = 'select' | 'connect' | 'text' | 'delete';
 
-type ToolType = 'select' | 'connect' | 'text' | 'delete';
+interface ConnectionToolProps {
+  activeTool: ToolType;
+  onToolChange: (tool: ToolType) => void;
+}
 
-export function ConnectionTool() {
-  const [activeTool, setActiveTool] = useState<ToolType>('select');
-
+export function ConnectionTool({ activeTool, onToolChange }: ConnectionToolProps) {
   const tools: { id: ToolType; icon: string; label: string }[] = [
     { id: 'select', icon: '↖', label: 'Sélection' },
     { id: 'connect', icon: '🔗', label: 'Lien' },
@@ -34,7 +35,7 @@ export function ConnectionTool() {
         return (
           <button
             key={tool.id}
-            onClick={() => setActiveTool(tool.id)}
+            onClick={() => onToolChange(tool.id)}
             title={tool.label}
             style={{
               width: '36px',

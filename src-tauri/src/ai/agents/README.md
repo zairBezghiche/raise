@@ -1,124 +1,140 @@
 # Module `ai/agents` — Système Multi-Agents Neuro-Symbolique
 
-Ce module implémente la logique **exécutive** de l'IA de GenAptitude. Il est responsable de transformer des requêtes en langage naturel (floues) en actions d'ingénierie formelles (strictes, validées et persistées).
+Ce module implémente la logique **exécutive** de l'IA de GenAptitude. Il transforme des requêtes en langage naturel (floues) en artefacts d'ingénierie formels (strictes, validés et persistés) selon la méthodologie **Arcadia**.
 
-## 🧠 Architecture et Flux de Données
+## 🧠 Architecture Globale
 
-Le système repose sur un pipeline en trois étapes : **Comprendre → Décider → Agir**.
+Le système repose sur un pipeline **Comprendre → Décider → Agir** orchestré par un Dispatcher central.
 
-```mermaid
-sequenceDiagram
-    participant U as User/CLI
-    participant C as IntentClassifier
-    participant L as LLM (Local/Cloud)
-    participant A as SystemAgent
-    participant DB as JSON-DB
+```text
+┌──────────────┐
+│  UTILISATEUR │
+└──────┬───────┘
+       │ "Crée une exigence de performance"
+       ▼
+┌──────────────────────┐         1. Classification         ┌───────────────────┐
+│      DISPATCHER      │ ────────────────────────────────▶ │ INTENT CLASSIFIER │
+│   (ai_commands.rs)   │ ◀──────────────────────────────── │ (Mode JSON Strict)│
+└──────────┬───────────┘         2. EngineeringIntent      └─────────┬─────────┘
+           │                                                         │
+           │ 3. Routage (Layer = TRANSVERSE)                         │
+           ▼                                                         ▼
+┌──────────────────────┐                                   ┌───────────────────┐
+│     AGENT SQUAD      │         4. Génération             │        LLM        │
+│  (TransverseAgent)   │ ────────────────────────────────▶ │  (Local / Cloud)  │
+└──────────┬───────────┘ ◀──────────────────────────────── └───────────────────┘
+           │                     5. JSON Détaillé (Brut)
+           │
+           │ 6. Écriture (Validation Schéma + UUID)
+           ▼
+┌──────────────────────┐
+│       JSON-DB        │
+│   (StorageEngine)    │
+└──────────────────────┘
+           │
+           │ 7. AgentResult { message, artifacts: [...] }
+           ▼
+    VERS FRONTEND
 
-    U->>C: "Crée un acteur 'Pilote'"
-    C->>L: Prompt de Classification (JSON Mode)
-    L-->>C: { "intent": "create_element", "params": ... }
-    C->>C: Nettoyage JSON & Désérialisation
-    C-->>U: EngineeringIntent (Enum Rust)
-
-    U->>A: process(intent)
-    A->>L: "Génère une description pour un Pilote"
-    L-->>A: "Personne chargée de la navigation..."
-    A->>A: Mapping Sémantique (Schema + URI)
-    A->>DB: create_collection() & insert_with_schema()
-    DB-->>A: ID & Timestamp (x_compute)
-    A-->>U: Résultat final
 ```
 
 ---
 
-## 📂 Structure du Module
+## 👥 La "Squad" d'Agents (Spécialisation)
 
-### 1\. Le Contrat (`mod.rs`)
+Contrairement à une approche monolithique, GenAptitude utilise une **équipe d'agents spécialisés**, chacun expert dans sa couche d'abstraction Arcadia.
 
-Définit le trait `Agent` que tous les agents spécialisés (Système, Logiciel, Matériel) doivent implémenter.
+| Agent               | Rôle & Responsabilités | Couche         | Schémas gérés                                              |
+| ------------------- | ---------------------- | -------------- | ---------------------------------------------------------- |
+| **BusinessAgent**   | Analyste Métier        | **OA**         | `OperationalCapability`, `OperationalActor`                |
+| **SystemAgent**     | Architecte Système     | **SA**         | `SystemFunction`, `SystemComponent`, `SystemActor`         |
+| **SoftwareAgent**   | Architecte Logiciel    | **LA**         | `LogicalComponent` + **Génération de Code**                |
+| **HardwareAgent**   | Architecte Matériel    | **PA**         | `PhysicalNode` (Détection auto: Électronique vs Infra)     |
+| **EpbsAgent**       | Config Manager         | **EPBS**       | `ConfigurationItem` (Gestion P/N, Kind)                    |
+| **DataAgent**       | Data Architect         | **DATA**       | `Class`, `DataType`, `ExchangeItem` (MDM)                  |
+| **TransverseAgent** | Qualité & IVVQ Manager | **TRANSVERSE** | `Requirement`, `Scenario`, `TestProcedure`, `TestCampaign` |
+
+---
+
+## 🛡️ Robustesse & Tolérance aux Pannes
+
+Le module a été durci pour fonctionner avec des **Small Language Models (SLM)** locaux (ex: Mistral, Llama 3) qui sont souvent "bavards" ou imprécis.
+
+### 1. Parsing "Chirurgical" (`extract_json`)
+
+Les agents n'essaient plus de parser toute la réponse du LLM. Ils utilisent une méthode d'extraction intelligente :
+
+- Ignorer les balises Markdown (````json`).
+- Repérer la première accolade `{` et la dernière `}`.
+- Couper tout le texte explicatif avant ou après.
+
+### 2. Intent Classifier Tolérant
+
+- **Structure Plate** : `{ "intent": "...", "layer": "SA" }` (plus robuste que les structures imbriquées).
+- **Champs Optionnels** : Utilisation de `#[serde(default)]` pour les champs comme `context` dans la génération de code, évitant les crashs si le LLM oublie un paramètre mineur.
+
+### 3. Protection "Force Name"
+
+Pour éviter que l'IA ne renomme arbitrairement les éléments (ex: "Rack Server" -> "Server"), les agents écrasent systématiquement le champ `name` du JSON généré avec la demande initiale de l'utilisateur.
+
+---
+
+## 📦 Sortie Structurée : `AgentResult`
+
+Pour permettre une UI riche, les agents ne renvoient pas une simple chaîne de caractères, mais une structure `AgentResult` :
 
 ```rust
-#[async_trait]
-pub trait Agent {
-    /// Traite une intention d'ingénierie.
-    /// Retourne Ok(Some(message)) si l'action a été réalisée.
-    async fn process(&self, intent: &EngineeringIntent) -> Result<Option<String>>;
+pub struct AgentResult {
+    pub message: String,              // Feedback textuel (Markdown)
+    pub artifacts: Vec<CreatedArtifact>, // Liste des objets créés
 }
+
+pub struct CreatedArtifact {
+    pub id: String,
+    pub name: String,
+    pub layer: String,        // Ex: "SA"
+    pub element_type: String, // Ex: "Function"
+    pub path: String,         // Chemin relatif pour ouverture dans l'UI
+}
+
 ```
 
-### 2\. Le Cerveau Sémantique (`intent_classifier.rs`)
-
-Ce composant utilise le LLM (en mode température basse) pour catégoriser la demande utilisateur en une structure de données Rust stricte.
-
-- **Rôle** : Router / Parser.
-- **Type de retour** : `EngineeringIntent` (Enum).
-- **Fonctionnalités clés** :
-  - Support du **Dual Mode** (Local Mistral / Cloud Gemini).
-  - **Nettoyage robuste** des réponses JSON (suppression des échappements Markdown parasites comme `\_`).
-  - Déduction automatique des couches (ex: "Acteur" → "OA").
-
-### 3\. L'Agent Système (`system_agent.rs`)
-
-L'ouvrier spécialisé dans les couches hautes de la méthode Arcadia (OA & SA).
-
-- **Périmètre** :
-  - **OA (Operational Analysis)** : Acteurs, Activités.
-  - **SA (System Analysis)** : Fonctions, Composants Système.
-- **Capacités** :
-  - **Enrichissement** : Utilise le LLM pour générer des descriptions techniques en français si l'utilisateur ne les fournit pas.
-  - **Mapping Schéma** : Associe automatiquement le bon schéma JSON (`.schema.json`) et le bon Type JSON-LD (`@type`) selon l'élément créé.
-  - **Persistance** : Utilise `CollectionsManager` pour garantir l'intégrité référentielle (mise à jour de `_system.json` et `_meta.json`).
+Cela permet au Frontend d'afficher des **"Cartes d'Artefacts"** cliquables dans le chat.
 
 ---
 
-## 🛠️ Détails d'Implémentation
+## 🚀 Utilisation & Tests
 
-### Mapping Sémantique (Arcadia)
+### Via la Suite de Tests (Recommandé)
 
-Le `SystemAgent` maintient la correspondance entre le vocabulaire naturel et l'ontologie technique :
-
-| Langage Naturel | Couche | Collection   | Type JSON-LD (@type)     | Schéma JSON                               |
-| :-------------- | :----- | :----------- | :----------------------- | :---------------------------------------- |
-| **Acteur**      | OA     | `actors`     | `oa:OperationalActor`    | `arcadia/oa/actor.schema.json`            |
-| **Activité**    | OA     | `activities` | `oa:OperationalActivity` | `arcadia/oa/activity.schema.json`         |
-| **Fonction**    | SA     | `functions`  | `sa:SystemFunction`      | `arcadia/sa/system-function.schema.json`  |
-| **Composant**   | SA     | `components` | `sa:SystemComponent`     | `arcadia/sa/system-component.schema.json` |
-
-### Sécurité et Robustesse
-
-1.  **Injection de Schéma** : Chaque document inséré reçoit une propriété `$schema` calculée relative, garantissant que l'objet reste valide même si on déplace les fichiers.
-2.  **Auto-Repair** : Si la collection cible n'existe pas, l'agent la crée et l'enregistre dans l'index global avant l'insertion.
-
----
-
-## 🚀 Utilisation
-
-### Via le code (Rust)
-
-```rust
-// 1. Classifier
-let classifier = IntentClassifier::new(client.clone());
-let intent = classifier.classify("Crée une fonction 'Décoller'").await;
-
-// 2. Exécuter
-let agent = SystemAgent::new(client, storage);
-agent.process(&intent).await?;
-```
-
-### Via le CLI (Terminal)
+Le projet dispose d'une suite de tests d'intégration complète validant le cycle en V.
 
 ```bash
-# Mode Simulation (Dry Run)
-cargo run -p ai_cli -- classify "Crée un acteur Pilote"
+# Lancer toute la suite IA (Agents + Code Gen)
+cargo test --test ai_suite -- --ignored
+cargo test --test code_gen_suite -- --ignored
 
-# Mode Exécution (Écriture en base)
-cargo run -p ai_cli -- classify "Crée un acteur Pilote" -x
+# Tester un agent spécifique (ex: Data)
+cargo test --test ai_suite data_agent_tests -- --ignored --nocapture
+
 ```
 
----
+### Via le CLI
 
-## 🔮 Évolutions Futures
+```bash
+# Exemple : Création d'une procédure de test
+cargo run -p ai_cli -- classify "Crée un test pour vérifier le login" -x
 
-- [ ] **SoftwareAgent** : Pour la génération de code et les couches LA/PA.
-- [ ] **Relations** : Capacité de lier deux éléments (ex: "L'acteur X réalise l'activité Y").
-- [ ] **Validation** : Vérifier si un nom existe déjà avant création (unicité).
+```
+
+## 🔮 Roadmap Technique
+
+- [ ] **Gestion des Relations (WIP)** : Implémentation complète des `DataFlow` et `ComponentExchange` (actuellement en migration).
+- [ ] **Mode RAG Avancé** : Indexation vectorielle des Exigences pour la vérification de cohérence.
+- [ ] **Review Agent** : Un agent dédié à l'audit des modèles (Quality Rules).
+
+<!-- end list -->
+
+```
+
+```

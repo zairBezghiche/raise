@@ -1,0 +1,3 @@
+[env]
+# Force l'exécution séquentielle des tests pour éviter le Rate Limit Gemini
+RUST_TEST_THREADS = "1"

@@ -5,6 +5,11 @@
   "description": "Passerelles de validation humaine et niveaux de revue.",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "$ref": "../../common/base.schema.json"
+    }
+  ],
   "properties": {
     "enabled": {
       "type": "boolean",
@@ -37,10 +42,7 @@
             "minimum": 0
           }
         },
-        "required": [
-          "id",
-          "name"
-        ]
+        "required": ["id", "name"]
       },
       "default": []
     }

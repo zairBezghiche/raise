@@ -5,6 +5,11 @@
   "description": "Règles d’accès, consentements et politiques (allow/deny).",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "$ref": "../../common/base.schema.json"
+    }
+  ],
   "properties": {
     "consentRequired": {
       "type": "boolean",
@@ -21,10 +26,7 @@
           },
           "effect": {
             "type": "string",
-            "enum": [
-              "allow",
-              "deny"
-            ]
+            "enum": ["allow", "deny"]
           },
           "actions": {
             "type": "array",
@@ -44,10 +46,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "id",
-          "effect"
-        ]
+        "required": ["id", "effect"]
       },
       "default": []
     }

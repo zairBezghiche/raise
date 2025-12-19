@@ -2,8 +2,14 @@ use crate::ai::llm::client::{LlmBackend, LlmClient};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "intent", content = "params")]
+#[serde(tag = "intent")]
 pub enum EngineeringIntent {
+    #[serde(rename = "define_business_use_case")]
+    DefineBusinessUseCase {
+        domain: String,
+        process_name: String,
+        description: String,
+    },
     #[serde(rename = "create_element")]
     CreateElement {
         layer: String,
@@ -19,6 +25,7 @@ pub enum EngineeringIntent {
     #[serde(rename = "generate_code")]
     GenerateCode {
         language: String,
+        #[serde(alias = "content", alias = "code", default)]
         context: String,
         filename: String,
     },
@@ -38,111 +45,83 @@ impl IntentClassifier {
     }
 
     pub async fn classify(&self, user_input: &str) -> EngineeringIntent {
-        let system_prompt = r#"
-        RÔLE : Classificateur d'intention JSON strict pour ingénierie système.
-        CONSIGNE : Analyse la phrase et retourne 1 seul JSON.
+        let system_prompt = "Tu es le Dispatcher IA de GenAptitude.
+        Ton rôle est de classifier l'intention de l'utilisateur en JSON STRICT.
 
-        ALGORITHME DE DÉCISION :
-
-        1. GÉNÉRATION DE CODE :
-           Si l'utilisateur demande explicitement du "Code", un "Script", un "Fichier", ou cite un langage.
-           -> "generate_code"
-
-        2. RELATIONS (Action) :
-           Si la phrase contient un verbe d'action entre deux concepts ("réalise", "exécute", "pilote").
-           -> "create_relationship"
-
-        3. CRÉATION (Modélisation) :
-           Si la phrase est un ordre de création d'élément d'architecture ("Crée", "Défini", "Ajoute").
-           -> "create_element"
-           
-        MAPPING TYPES :
-        - Acteur/Activity -> "OA"
-        - Fonction/Composant -> "SA"
+        RÈGLES DE ROUTAGE :
+        - 'Classe', 'Donnée', 'Enum' -> layer: DATA, element_type: Class/DataType
+        - 'Composant', 'Service' -> layer: LA, element_type: Component
+        - 'Fonction' -> layer: SA, element_type: Function
+        - 'Serveur', 'Calculateur', 'Hardware' -> layer: PA, element_type: PhysicalNode
+        - 'Exigence', 'Test' -> layer: TRANSVERSE
 
         EXEMPLES :
-        Input: "Génère le code Rust pour Superviseur"
-        Output: {"intent":"generate_code","params":{"language":"Rust","filename":"Superviseur.rs","context":"..."}}
+        - 'Défini la classe Client' -> { \"intent\": \"create_element\", \"layer\": \"DATA\", \"element_type\": \"Class\", \"name\": \"Client\" }
+        - 'Ajoute un serveur SQL' -> { \"intent\": \"create_element\", \"layer\": \"PA\", \"element_type\": \"PhysicalNode\", \"name\": \"SQL Server\" }
+        
+        JSON UNIQUEMENT. PAS DE MARKDOWN.";
 
-        Input: "Crée une fonction Démarrer"
-        Output: {"intent":"create_element","params":{"layer":"SA","element_type":"Function","name":"Démarrer"}}
-
-        Input: "Le Pilote réalise Démarrer"
-        Output: {"intent":"create_relationship","params":{"source_name":"Pilote","target_name":"Démarrer","relation_type":"allocation"}}
-        "#;
-
-        match self
+        let response = self
             .llm
             .ask(LlmBackend::LocalLlama, system_prompt, user_input)
             .await
-        {
-            Ok(raw_response) => {
-                println!("🔍 [DEBUG LLM RAW]:\n{}", raw_response);
+            .unwrap_or_else(|_| "{}".to_string());
 
-                // Extraction robuste
-                let json_str = extract_json(&raw_response);
+        let clean_json = extract_json(&response);
 
-                // Nettoyage des backslashes parasites
-                let clean_json = json_str.replace(r"\_", "_");
+        match serde_json::from_str::<EngineeringIntent>(&clean_json) {
+            Ok(mut intent) => {
+                // --- CORRECTION ET FORÇAGE DES COUCHES ---
+                if let EngineeringIntent::CreateElement {
+                    ref mut layer,
+                    ref element_type,
+                    ..
+                } = intent
+                {
+                    // 1. Priorité absolue aux mots-clés techniques
+                    let et_lower = element_type.to_lowercase();
 
-                match serde_json::from_str::<EngineeringIntent>(&clean_json) {
-                    Ok(mut intent) => {
-                        // Filet de sécurité couches
-                        if let EngineeringIntent::CreateElement {
-                            layer,
-                            element_type,
-                            ..
-                        } = &mut intent
-                        {
-                            if layer.contains("<")
-                                || layer.is_empty()
-                                || (layer != "OA" && layer != "SA")
-                            {
-                                *layer = match element_type.as_str() {
-                                    "Activity" | "Activité" => "OA".to_string(),
-                                    "Actor" | "Acteur" => "OA".to_string(),
-                                    "Function" | "Fonction" => "SA".to_string(),
-                                    "Component" | "Composant" => "SA".to_string(),
-                                    _ => "OA".to_string(),
-                                };
-                            }
-                        }
-                        intent
+                    if et_lower.contains("class")
+                        || et_lower.contains("datatype")
+                        || et_lower.contains("enum")
+                    {
+                        *layer = "DATA".to_string();
+                    } else if et_lower.contains("requirement") || et_lower.contains("exigence") {
+                        *layer = "TRANSVERSE".to_string();
                     }
-                    Err(e) => {
-                        println!("⚠️ Erreur parsing JSON: {}", e);
-                        println!("   Chaîne extraite: '{}'", clean_json);
-                        EngineeringIntent::Unknown
+
+                    // 2. Fallback si le layer est vide ou incorrect
+                    if layer.is_empty() || layer == "Unknown" {
+                        *layer = match et_lower.as_str() {
+                            "actor" | "acteur" | "operationalactor" => "OA".to_string(),
+                            "function" | "fonction" | "systemfunction" => "SA".to_string(),
+                            "component" | "composant" | "logicalcomponent" => "LA".to_string(),
+                            _ => "SA".to_string(),
+                        };
                     }
                 }
+                intent
             }
             Err(e) => {
-                println!("❌ Erreur LLM: {}", e);
+                println!("⚠️ Erreur parsing JSON Intent: {}", e);
+                println!("   Input LLM: {}", clean_json);
                 EngineeringIntent::Unknown
             }
         }
     }
 }
 
-/// Extrait le JSON en prenant tout ce qu'il y a entre le premier '{' et le dernier '}'
-/// Cette méthode est beaucoup plus robuste aux erreurs de formatage des LLM.
 fn extract_json(text: &str) -> String {
-    // 1. Trouver le début du JSON (première accolade)
     let start_index = match text.find('{') {
         Some(i) => i,
-        None => return text.to_string(), // Pas de JSON trouvé
+        None => return text.to_string(),
     };
-
-    // 2. Trouver la fin du JSON (dernière accolade)
     let end_index = match text.rfind('}') {
         Some(i) => i,
-        None => return text[start_index..].to_string(), // JSON malfermé ? On tente quand même
+        None => return text[start_index..].to_string(),
     };
-
-    // 3. Extraire le bloc si valide
     if end_index > start_index {
         return text[start_index..=end_index].trim().to_string();
     }
-
     text.trim().to_string()
 }

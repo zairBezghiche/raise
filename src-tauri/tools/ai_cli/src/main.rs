@@ -3,11 +3,19 @@ use clap::{Parser, Subcommand};
 use dotenvy::dotenv;
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-// Imports Métier (Librairie GenAptitude)
+// Imports Métier COMPLETS
 use genaptitude::ai::agents::intent_classifier::{EngineeringIntent, IntentClassifier};
-use genaptitude::ai::agents::{software_agent::SoftwareAgent, system_agent::SystemAgent, Agent};
+use genaptitude::ai::agents::{
+    business_agent::BusinessAgent, data_agent::DataAgent, epbs_agent::EpbsAgent,
+    hardware_agent::HardwareAgent, software_agent::SoftwareAgent, system_agent::SystemAgent,
+    transverse_agent::TransverseAgent, Agent, AgentContext,
+};
+
+// Import nécessaire pour le Chat manuel
 use genaptitude::ai::llm::client::{LlmBackend, LlmClient};
+// Import nécessaire pour la configuration DB
 use genaptitude::json_db::storage::{JsonDbConfig, StorageEngine};
 
 /// Outil en ligne de commande (CLI) pour piloter le module IA de GenAptitude.
@@ -50,138 +58,148 @@ async fn main() -> Result<()> {
     let local_url =
         env::var("GENAPTITUDE_LOCAL_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
 
-    let db_path_str =
-        env::var("PATH_GENAPTITUDE_DOMAIN").unwrap_or_else(|_| "./genaptitude_db".to_string());
-    let db_root = PathBuf::from(db_path_str);
+    let domain_path = env::var("PATH_GENAPTITUDE_DOMAIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap().join("data"));
+    let dataset_path = env::var("PATH_GENAPTITUDE_DATASET")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap().join("dataset"));
 
-    // Initialisation DB
-    let config = JsonDbConfig::new(db_root);
-    let storage = StorageEngine::new(config);
+    let client = LlmClient::new(&local_url, &gemini_key, model_name.clone());
 
-    // Initialisation Client LLM
-    let client = LlmClient::new(&local_url, &gemini_key, model_name);
+    // CONFIGURATION DB
+    let db_config = JsonDbConfig::new(domain_path.clone());
+    let storage = StorageEngine::new(db_config);
 
-    let args = Cli::parse();
+    // 3. Initialisation du Contexte Agent
+    let ctx = AgentContext::new(
+        Arc::new(storage.clone()),
+        client.clone(),
+        domain_path.clone(),
+        dataset_path.clone(),
+    );
 
-    match args.command {
-        // --- COMMANDE CHAT ---
+    let cli = Cli::parse();
+
+    match &cli.command {
+        // --- LOGIQUE CHAT ---
         Commands::Chat { message, cloud } => {
-            let backend = if cloud {
-                LlmBackend::GoogleGemini
+            let (backend, backend_name) = if *cloud {
+                (LlmBackend::GoogleGemini, "Google Gemini ☁️")
             } else {
-                LlmBackend::LocalLlama
+                (LlmBackend::LocalLlama, "Local LLM 🏠")
             };
-            let mode = if cloud { "CLOUD" } else { "LOCAL" };
-            println!("🤖 [{}] Envoi : \"{}\"", mode, message);
 
-            match client
-                .ask(backend, "Tu es un assistant CLI.", &message)
-                .await
-            {
-                Ok(response) => println!("\n✅ Réponse :\n{}", response),
+            println!("💬 Discussion avec {}...", backend_name);
+            let system_prompt = "Tu es GenAptitude, un assistant expert en ingénierie.";
+
+            match client.ask(backend, system_prompt, message).await {
+                Ok(response) => println!("\n🤖 Réponse :\n{}", response),
                 Err(e) => eprintln!("❌ Erreur : {}", e),
             }
         }
 
-        // --- COMMANDE CLASSIFY ---
         Commands::Classify { input, execute } => {
-            println!("🧠 Analyse : \"{}\"", input);
-
             let classifier = IntentClassifier::new(client.clone());
-            let intent = classifier.classify(&input).await;
-
-            // Affichage de l'intention brute pour debug
-            println!("🔍 Intention détectée : {:?}", intent);
+            println!("🧠 Analyse de l'intention: '{}'", input);
+            let intent = classifier.classify(input).await;
 
             match intent {
-                // CAS 1 : CRÉATION D'ÉLÉMENT
+                // 1. BUSINESS (OA)
+                EngineeringIntent::DefineBusinessUseCase {
+                    ref domain,
+                    ref process_name,
+                    ..
+                } => {
+                    println!(
+                        "🚀 Exécution Business Agent pour : {} ({})",
+                        process_name, domain
+                    );
+                    run_agent(BusinessAgent::new(), &ctx, &intent, *execute).await;
+                }
+
+                // 2. SYSTÈME (SA)
+                EngineeringIntent::CreateElement { ref layer, .. } if layer == "SA" => {
+                    println!("⚙️ Exécution System Agent (SA)...");
+                    run_agent(SystemAgent::new(), &ctx, &intent, *execute).await;
+                }
+
+                // 3. LOGICIEL (LA) & GÉNÉRATION CODE
                 EngineeringIntent::CreateElement {
                     ref layer,
                     ref element_type,
-                    ref name,
-                } => {
-                    println!("\n🔧 PLAN D'ACTION : CRÉATION");
-                    println!("   • Cible : {} / {} / {}", layer, element_type, name);
-
-                    if execute {
-                        println!("⚡ Exécution SystemAgent...");
-                        // On passe storage à l'agent
-                        let agent = SystemAgent::new(client.clone(), storage);
-                        match agent.process(&intent).await {
-                            Ok(Some(res)) => println!("\n✅ SUCCÈS :\n{}", res),
-                            Ok(None) => println!("\nℹ️ IGNORÉ : L'agent ne gère pas ce type."),
-                            Err(e) => eprintln!("\n❌ ÉCHEC : {}", e),
-                        }
-                    } else {
-                        println!("\n(Dry Run - Utilisez -x pour exécuter)");
-                    }
+                    ..
+                } if layer == "LA" || element_type.contains("Software") => {
+                    println!("💻 Exécution Software Agent (LA)...");
+                    run_agent(SoftwareAgent::new(), &ctx, &intent, *execute).await;
                 }
-
-                // CAS 2 : CRÉATION DE RELATION
-                EngineeringIntent::CreateRelationship {
-                    ref source_name,
-                    ref target_name,
-                    ref relation_type,
-                } => {
-                    println!("\n🔗 PLAN D'ACTION : RELIER");
-                    println!("   • Source : {}", source_name);
-                    println!("   • Cible  : {}", target_name);
-                    println!("   • Type   : {}", relation_type);
-
-                    if execute {
-                        println!("⚡ Exécution SystemAgent...");
-                        let agent = SystemAgent::new(client.clone(), storage);
-                        match agent.process(&intent).await {
-                            Ok(Some(res)) => println!("\n✅ SUCCÈS :\n{}", res),
-                            Ok(None) => println!("\nℹ️ WIP : La gestion des relations n'est pas encore implémentée dans l'agent."),
-                            Err(e) => eprintln!("\n❌ ÉCHEC : {}", e),
-                        }
-                    } else {
-                        println!("\n(Dry Run - Utilisez -x pour exécuter)");
-                    }
-                }
-
-                // CAS 3 : GÉNÉRATION DE CODE
                 EngineeringIntent::GenerateCode {
                     ref language,
-                    ref context,
                     ref filename,
+                    ..
                 } => {
-                    println!("\n💻 PLAN D'ACTION : CODAGE");
-                    println!("   • Langage : {}", language);
-                    println!("   • Fichier : {}", filename);
-                    println!("   • Contexte: {}", context);
-
-                    if execute {
-                        println!("⚡ Exécution SoftwareAgent...");
-                        // On définit la racine du projet comme espace de travail
-                        let root = std::env::current_dir()?;
-
-                        // CORRECTION : On passe 'storage' au SoftwareAgent pour le mode hybride
-                        let agent = SoftwareAgent::new(client.clone(), storage, root);
-
-                        match agent.process(&intent).await {
-                            Ok(Some(res)) => println!("\n✅ SUCCÈS :\n{}", res),
-                            Ok(None) => println!("ℹ️ Ignoré."),
-                            Err(e) => eprintln!("❌ ÉCHEC : {}", e),
-                        }
-                    } else {
-                        println!("\n(Dry Run - Utilisez -x pour générer le fichier)");
-                    }
+                    println!("👨‍💻 Génération de code ({}) -> {}", language, filename);
+                    run_agent(SoftwareAgent::new(), &ctx, &intent, *execute).await;
                 }
 
-                // CAS 4 : DISCUSSION
+                // 4. MATÉRIEL (PA)
+                EngineeringIntent::CreateElement { ref layer, .. } if layer == "PA" => {
+                    println!("🔧 Exécution Hardware Agent (PA)...");
+                    run_agent(HardwareAgent::new(), &ctx, &intent, *execute).await;
+                }
+
+                // 5. CONFIGURATION (EPBS)
+                EngineeringIntent::CreateElement { ref layer, .. } if layer == "EPBS" => {
+                    println!("📦 Exécution EPBS Agent...");
+                    run_agent(EpbsAgent::new(), &ctx, &intent, *execute).await;
+                }
+
+                // 6. DONNÉES (DATA)
+                EngineeringIntent::CreateElement { ref layer, .. } if layer == "DATA" => {
+                    println!("💾 Exécution Data Agent...");
+                    run_agent(DataAgent::new(), &ctx, &intent, *execute).await;
+                }
+
+                // 7. TRANSVERSE / IVVQ
+                EngineeringIntent::CreateElement { ref layer, .. } if layer == "TRANSVERSE" => {
+                    println!("✨ Exécution Transverse Agent...");
+                    run_agent(TransverseAgent::new(), &ctx, &intent, *execute).await;
+                }
+
+                // NON GÉRÉ
+                EngineeringIntent::CreateRelationship { .. } => {
+                    println!("\n🚧 Intention détectée : Création de Relation (WIP)");
+                }
                 EngineeringIntent::Chat => {
                     println!("\n💬 Mode DISCUSSION (Pas d'action technique)");
                 }
-
-                // CAS 5 : INCONNU
                 EngineeringIntent::Unknown => {
                     println!("\n❓ INTENTION INCONNUE");
+                }
+                _ => {
+                    println!("\n⚠️ Cas non géré par le CLI.");
                 }
             }
         }
     }
 
     Ok(())
+}
+
+/// Helper pour exécuter un agent de manière uniforme
+async fn run_agent<A: Agent>(
+    agent: A,
+    ctx: &AgentContext,
+    intent: &EngineeringIntent,
+    execute: bool,
+) {
+    if execute {
+        match agent.process(ctx, intent).await {
+            Ok(Some(res)) => println!("\n✅ SUCCÈS :\n{}", res),
+            Ok(None) => println!("ℹ️ Ignoré (Pas de résultat)."),
+            Err(e) => eprintln!("❌ ÉCHEC : {}", e),
+        }
+    } else {
+        println!("\n(Mode Dry Run - Utilisez -x pour exécuter réellement)");
+    }
 }

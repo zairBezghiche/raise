@@ -1,133 +1,119 @@
-# Module `ai/llm` — Client d'Inférence Unifié (Dual Mode)
+# Module Low-Level LLM 🧠
 
-Ce module est la passerelle de communication bas niveau entre GenAptitude et les Large Language Models (LLMs).
+Ce module est la **couche d'abstraction bas niveau** responsable de la communication avec les modèles d'intelligence artificielle.
+Il isole le reste de l'application Rust de la complexité des APIs tierces (OpenAI format, Google REST API) et assure la résilience du service.
 
-Il implémente une architecture **Dual Mode** qui permet de basculer dynamiquement, requête par requête, entre une exécution souveraine (locale) et une exécution haute performance (cloud), le tout derrière une interface Rust unifiée.
+---
 
-## 🏗️ Architecture Technique
+## 🏗️ Architecture & Flux de Données
 
-Le module agit comme un **Adaptateur Universel**. Le reste de l'application (Agents, Commandes) ne se soucie pas du format JSON spécifique de chaque fournisseur.
+Le client implémente un pattern **"Smart Fallback"**. Il tente toujours de privilégier l'inférence locale (confidentialité, coût) mais bascule automatiquement et silencieusement vers le Cloud en cas d'indisponibilité.
 
-```mermaid
-graph LR
-    Caller[Agent / Command] -->|ask(backend, prompt)| Client[LlmClient]
-
-    Client -->|Switch Backend| Router{Routeur}
-
-    %% Branche Locale
-    Router -- LocalLlama --> Adapter1[OpenAI Adapter]
-    Adapter1 -->|POST /v1/chat/completions| Docker[🐳 Docker (Mistral 7B)]
-    Docker --> GPU[Nvidia GTX/RTX]
-
-    %% Branche Cloud
-    Router -- GoogleGemini --> Adapter2[Google REST Adapter]
-    Adapter2 -->|POST /v1beta/models/generateContent| Cloud[☁️ Google Vertex AI]
-
-    %% Retour
-    Docker -->|JSON| Parser[Response Unifier]
-    Cloud -->|JSON| Parser
-
-    Parser -->|String| Caller
+```text
+    [ Application Rust (Agents) ]
+                 |
+                 v
+      +---------------------+
+      |      LlmClient      |
+      | (Interface Unifiée) |
+      +---------------------+
+                 |
+        1. Tentative LOCAL
+                 |
+                 v
+      /---------------------\
+      |   API Locale (HTTP) | <--- Ping / Timeout (2s)
+      \---------------------/
+         |             |
+     [Succès]      [Échec / 404]
+         |             |
+         |             v
+         |     2. Bascule CLOUD (Fallback)
+         |             |
+         |             v
+         |    /-----------------\
+         |    |  Google Gemini  | (REST API v1beta)
+         |    \-----------------/
+         |             |
+         |             |
+         v             v
+      +---------------------+
+      |   Réponse Textuelle |
+      +---------------------+
 ```
 
 ---
 
-## 📂 Composants
+## 📂 Structure des Fichiers
 
-### 1\. `client.rs` (Le Driver)
+| Fichier              | Responsabilité                                                                                                                                        |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`client.rs`**      | **Cœur du module**. Implémente `LlmClient`, la gestion HTTP (reqwest), la logique de fallback et le nettoyage des noms de modèles (`models/` prefix). |
+| `response_parser.rs` | _(Utilitaire)_ Fonctions pour extraire et valider le JSON depuis les blocs de code Markdown (```json) renvoyés par les LLMs.                          |
+| `prompts.rs`         | _(Utilitaire)_ Bibliothèque de prompts système (System Prompts) pour spécialiser l'IA (Expert Rust, Expert SQL, Architecte Arcadia).                  |
+| `mod.rs`             | Point d'entrée du module, expose les types publics.                                                                                                   |
+| `tests.rs`           | Tests d'intégration pour vérifier la connexion aux backends (Local et Cloud) et le parsing.                                                           |
 
-C'est le cœur du module. Il encapsule toute la complexité réseau et protocolaire.
+---
 
-- **Gestionnaire HTTP** : Utilise `reqwest` avec des timeouts configurés (5 minutes) pour supporter les temps de génération longs des LLMs sur CPU/GPU local.
-- **DTOs (Data Transfer Objects)** : Structures `Serialize`/`Deserialize` internes qui mappent les formats propriétaires :
-  - `OpenAiRequest` : Format standard (llama.cpp, Ollama, vLLM).
-  - `GeminiRequest` : Format spécifique Google (contents, parts, system_instruction).
-- **Logique Unifiée** : La méthode `ask()` prend en charge le formatage du prompt système et utilisateur, l'envoi, et l'extraction propre du texte dans la réponse.
+## 🚀 Fonctionnalités Clés
 
-### 2\. `mod.rs`
+### 1. Smart Fallback (Résilience)
 
-Point d'entrée du module. Expose les structures publiques (`LlmClient`, `LlmBackend`) et contient les tests d'intégration.
+Le système est conçu pour le développement hybride :
+
+- **Mode Local (`LocalLlama`)** : Cible par défaut (ex: `localhost:8080/v1/...`). Idéal pour le dev hors-ligne ou la confidentialité.
+- **Mode Cloud (`GoogleGemini`)** : S'active si le serveur local ne répond pas sous 2 secondes. Utilise l'API Google Generative Language.
+
+### 2. Normalisation des Modèles Gemini
+
+Le client gère automatiquement les incohérences de nommage de l'API Google.
+
+- Entrée config : `models/gemini-1.5-flash` ou `gemini-1.5-flash`
+- Traitement interne : Nettoie le préfixe `models/` pour construire une URL API valide (`.../models/gemini-1.5-flash:generateContent`).
+
+### 3. Typage Fort
+
+Utilise des structures Rust (`struct`) pour sérialiser/désérialiser proprement les requêtes JSON, garantissant que les payloads envoyés à OpenAI ou Google sont toujours conformes.
 
 ---
 
 ## ⚙️ Configuration
 
-Le client est "stateless" mais sa configuration est injectée au démarrage via les variables d'environnement (chargées par `dotenvy`).
+Le client est instancié avec des paramètres provenant généralement des variables d'environnement (`.env`) chargées par le binaire principal.
 
-| Variable                 | Rôle                                          | Exemple                 |
-| :----------------------- | :-------------------------------------------- | :---------------------- |
-| `GENAPTITUDE_LOCAL_URL`  | Adresse du serveur d'inférence local (Docker) | `http://localhost:8080` |
-| `GENAPTITUDE_GEMINI_KEY` | Clé API Google AI Studio (Optionnel)          | `AIzaSy...`             |
-| `GENAPTITUDE_MODEL_NAME` | Nom du modèle Cloud cible                     | `gemini-1.5-pro`        |
+| Variable Env             | Usage                                                              |
+| ------------------------ | ------------------------------------------------------------------ |
+| `GENAPTITUDE_MODEL_NAME` | Nom du modèle (ex: `gemini-2.0-flash-001`). Le préfixe est géré.   |
+| `GENAPTITUDE_GEMINI_KEY` | Clé API Google (commence par `AIza...`).                           |
+| `GENAPTITUDE_LOCAL_URL`  | URL du serveur d'inférence local (ex: `http://localhost:1234/v1`). |
 
 ---
 
-## 🚀 Guide d'Utilisation (Rust)
-
-### Instanciation
-
-Le client est conçu pour être instancié une fois au niveau de la commande ou du CLI, puis cloné (le clone est léger, c'est juste un pointeur vers le pool de connexions).
+## 💻 Exemple d'Utilisation (Rust)
 
 ```rust
 use crate::ai::llm::client::{LlmClient, LlmBackend};
 
-// Configuration chargée depuis l'env
-let client = LlmClient::new(
-    "http://localhost:8080",
-    "ma_cle_google",
-    Some("gemini-1.5-pro".to_string())
-);
+async fn example() {
+    // 1. Instanciation
+    let client = LlmClient::new(
+        "http://localhost:1234",
+        "AIzaSy...",
+        Some("gemini-1.5-flash".to_string())
+    );
+
+    // 2. Appel (Le fallback est géré en interne si LocalLlama est choisi)
+    let reponse = client.ask(
+        LlmBackend::LocalLlama, // Tente le local d'abord
+        "Tu es un expert Rust.", // System Prompt
+        "Génère une struct Client." // User Prompt
+    ).await;
+
+    match reponse {
+        Ok(text) => println!("Réponse IA : {}", text),
+        Err(e) => eprintln!("Erreur critique : {}", e),
+    }
+}
+
 ```
-
-### Appel Unifié (`ask`)
-
-La méthode `ask` est asynchrone et retourne un `Result<String>`.
-
-**Cas 1 : Rapidité & Confidentialité (Local)**
-_Pour la classification d'intention, le chat simple, les petites corrections._
-
-```rust
-let response = client.ask(
-    LlmBackend::LocalLlama,
-    "Tu es un expert Rust.",      // System Prompt
-    "Comment faire une struct ?"  // User Prompt
-).await?;
-```
-
-**Cas 2 : Intelligence Complexe (Cloud)**
-_Pour la génération de SML, l'analyse d'architecture, ou quand le GPU local sature._
-
-```rust
-let response = client.ask(
-    LlmBackend::GoogleGemini,
-    "Tu es un architecte système senior.",
-    "Analyse les incohérences de ce modèle complexe..."
-).await?;
-```
-
----
-
-## 🛡️ Sécurité et Robustesse
-
-1.  **Isolation des Données** :
-
-    - En mode `LocalLlama`, **aucune donnée ne quitte la machine**. Les paquets restent sur la boucle locale (`localhost`).
-    - C'est le mode par défaut et privilégié pour les données sensibles.
-
-2.  **Gestion d'Erreurs (Fail-fast)** :
-
-    - Le client vérifie les statuts HTTP (`!res.status().is_success()`) avant de tenter de parser le JSON.
-    - Les erreurs réseau (Docker éteint, Internet coupé) sont propagées via `anyhow` pour être affichées proprement à l'utilisateur.
-
-3.  **Parsing Résilient** :
-
-    - Utilisation de `Option<T>` pour les champs de réponse JSON qui peuvent manquer selon les versions d'API.
-
----
-
-## 🔮 Roadmap Technique
-
-- [ ] **Streaming (SSE)** : Implémenter `ask_stream()` pour recevoir la réponse token par token (effet "machine à écrire" dans l'UI).
-- [ ] **Embeddings** : Ajouter une méthode `embed(text) -> Vec<f32>` pour vectoriser le texte (nécessaire pour le futur moteur de recherche sémantique).
-- [ ] **Token Counting** : Estimer le nombre de tokens avant envoi pour éviter les erreurs "Context Length Exceeded".
-- [ ] **Fallback Automatique** : Si le Cloud est inaccessible (timeout/erreur), basculer automatiquement sur le Local en mode dégradé.

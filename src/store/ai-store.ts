@@ -1,14 +1,5 @@
 import { create } from 'zustand';
-
-export type AiRole = 'user' | 'assistant' | 'system';
-
-export interface ChatMessage {
-  id: string;
-  role: AiRole;
-  content: string;
-  createdAt: string;
-  meta?: Record<string, unknown>;
-}
+import { ChatMessage } from '@/types/ai.types'; // <--- Import centralisé
 
 export interface AiStoreState {
   messages: ChatMessage[];

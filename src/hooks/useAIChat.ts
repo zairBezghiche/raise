@@ -1,31 +1,22 @@
 import { useCallback } from 'react';
-import { useAiStore, ChatMessage } from '@/store/ai-store';
-import { useSettingsStore } from '@/store/settings-store';
 import { invoke } from '@tauri-apps/api/core';
+import { useAiStore } from '@/store/ai-store';
+import { ChatMessage, AgentResult } from '@/types/ai.types';
 
-function genId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-// On garde l'interface exportée au cas où on en aurait besoin ailleurs ou plus tard
-export interface UseAIChatOptions {
-  systemPrompt?: string;
-}
-
-// CORRECTION : Suppression du paramètre inutilisé '_options'
 export function useAIChat() {
-  const { messages, isThinking, error, addMessage, clear, setThinking, setError } = useAiStore();
-  const { aiBackend } = useSettingsStore();
+  // On utilise le store global pour l'état (messages, loading...)
+  const { messages, isThinking, error, addMessage, setThinking, setError, clear } = useAiStore();
 
   const sendMessage = useCallback(
-    async (content: string) => {
-      const trimmed = content.trim();
-      if (!trimmed) return;
+    async (text: string) => {
+      // Nettoyage de l'input
+      if (!text.trim()) return;
 
+      // 1. On affiche tout de suite le message de l'utilisateur
       const userMsg: ChatMessage = {
-        id: genId(),
+        id: Date.now().toString(),
         role: 'user',
-        content: trimmed,
+        content: text,
         createdAt: new Date().toISOString(),
       };
       addMessage(userMsg);
@@ -34,40 +25,37 @@ export function useAIChat() {
       setError(undefined);
 
       try {
-        let replyText: string;
+        console.log('🚀 Envoi vers Rust (ai_chat)...');
 
-        if (aiBackend === 'mock') {
-          replyText = `[mock] Réponse : "${trimmed}"`;
-        } else {
-          console.log('Envoi vers Rust (ai_chat)...');
-          replyText = await invoke<string>('ai_chat', {
-            userInput: trimmed,
-          });
-        }
+        // 2. Appel Backend
+        const response = await invoke<AgentResult>('ai_chat', { userInput: text });
 
-        const assistantMsg: ChatMessage = {
-          id: genId(),
+        // 3. On crée la réponse de l'assistant avec les cartes (artefacts)
+        const aiMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: replyText,
+          content: response.message, // Le texte explicatif
+          artifacts: response.artifacts, // Les cartes visuelles
           createdAt: new Date().toISOString(),
         };
-        addMessage(assistantMsg);
-      } catch (e: unknown) {
-        console.error('Erreur AI:', e);
-        const errorMessage = e instanceof Error ? e.message : String(e);
-        setError(errorMessage);
+        addMessage(aiMsg);
+      } catch (err) {
+        console.error('❌ Erreur AI:', err);
+        setError(String(err));
+
+        const errorMsg: ChatMessage = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ Erreur système : ${err}`,
+          createdAt: new Date().toISOString(),
+        };
+        addMessage(errorMsg);
       } finally {
         setThinking(false);
       }
     },
-    [addMessage, setThinking, setError, aiBackend],
+    [addMessage, setThinking, setError],
   );
 
-  return {
-    messages,
-    isThinking,
-    error,
-    sendMessage,
-    clear,
-  };
+  return { messages, isThinking, error, sendMessage, clear };
 }

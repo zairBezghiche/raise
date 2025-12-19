@@ -5,16 +5,12 @@
   "description": "Assemblage complet de l’agent (Base + Planner + HITL + Consent/Policy + Workflow + Mémoire + MCPs).",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "$ref": "../../common/base.schema.json"
+    }
+  ],
   "properties": {
-    "id": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/_id"
-    },
-    "createdAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/createdAt"
-    },
-    "updatedAt": {
-      "$ref": "../common/types/primitive-types.schema.json#/$defs/updatedAt"
-    },
     "base": {
       "$ref": "./agent-base.schema.json"
     },

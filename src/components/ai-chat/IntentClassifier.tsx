@@ -1,4 +1,5 @@
-import type { ChatMessage } from '@/store/ai-store';
+// Correction de l'import : on pointe vers types/ai.types.ts
+import type { ChatMessage } from '@/types/ai.types';
 
 interface IntentClassifierProps {
   lastMessage?: ChatMessage;
@@ -22,7 +23,7 @@ export function IntentClassifier({ lastMessage }: IntentClassifierProps) {
     <div
       style={{
         fontSize: 'var(--font-size-xs)',
-        color: 'var(--color-primary)', // On met l'intent en couleur primaire
+        color: 'var(--color-primary)',
         fontWeight: 'var(--font-weight-medium)',
         marginBottom: 'var(--spacing-2)',
         backgroundColor: 'var(--color-gray-50)',

@@ -1,5 +1,17 @@
 use crate::ai::agents::intent_classifier::{EngineeringIntent, IntentClassifier};
-use crate::ai::agents::{software_agent::SoftwareAgent, system_agent::SystemAgent, Agent};
+use crate::ai::agents::{
+    business_agent::BusinessAgent,
+    data_agent::DataAgent,
+    epbs_agent::EpbsAgent,
+    hardware_agent::HardwareAgent,
+    software_agent::SoftwareAgent,
+    system_agent::SystemAgent,
+    transverse_agent::TransverseAgent,
+    Agent,
+    AgentContext,
+    AgentResult, // Import AgentResult
+};
+
 use crate::ai::context::retriever::SimpleRetriever;
 use crate::ai::llm::client::{LlmBackend, LlmClient};
 use crate::json_db::storage::StorageEngine;
@@ -7,90 +19,84 @@ use crate::model_engine::loader::ModelLoader;
 
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tauri::{command, State};
 
+/// Commande principale : Retourne un AgentResult structuré
 #[command]
 pub async fn ai_chat(
     storage: State<'_, StorageEngine>,
     user_input: String,
-) -> Result<String, String> {
-    // 1. Config
+) -> Result<AgentResult, String> {
+    // <--- Retourne AgentResult au lieu de String
+
+    // ... (Configuration : identique) ...
     let mode_dual =
         env::var("GENAPTITUDE_MODE_DUAL").unwrap_or_else(|_| "false".to_string()) == "true";
     let gemini_key = env::var("GENAPTITUDE_GEMINI_KEY").unwrap_or_default();
     let model_name = env::var("GENAPTITUDE_MODEL_NAME").ok();
     let local_url =
         env::var("GENAPTITUDE_LOCAL_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
-
+    let domain_path = env::var("PATH_GENAPTITUDE_DOMAIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap().join("data"));
+    let dataset_path = env::var("PATH_GENAPTITUDE_DATASET")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap().join("dataset"));
     let client = LlmClient::new(&local_url, &gemini_key, model_name.clone());
-    let classifier = IntentClassifier::new(client.clone());
 
-    println!("🧠 Analyse de l'intention...");
+    let ctx = AgentContext::new(
+        Arc::new(storage.inner().clone()),
+        client.clone(),
+        domain_path,
+        dataset_path,
+    );
+
+    let classifier = IntentClassifier::new(client.clone());
     let intent = classifier.classify(&user_input).await;
 
-    match intent {
-        // CAS A : Création Elément
-        EngineeringIntent::CreateElement { .. } => {
-            let sys_agent = SystemAgent::new(client.clone(), storage.inner().clone());
-            if let Some(res) = sys_agent
-                .process(&intent)
-                .await
-                .map_err(|e| e.to_string())?
-            {
-                return Ok(res);
-            }
-            Ok("⚠️ Agent incompétent.".to_string())
+    // ... (Routage) ...
+    let result = match intent {
+        EngineeringIntent::DefineBusinessUseCase { .. } => {
+            let agent = BusinessAgent::new();
+            agent.process(&ctx, &intent).await
         }
-
-        // CAS B : Relation
-        EngineeringIntent::CreateRelationship {
-            ref source_name,
-            ref target_name,
-            ref relation_type,
-        } => {
-            let sys_agent = SystemAgent::new(client.clone(), storage.inner().clone());
-            println!(
-                "🔗 Tentative de liaison : {} -> {} ({})",
-                source_name, target_name, relation_type
-            );
-
-            if let Some(res) = sys_agent
-                .process(&intent)
-                .await
-                .map_err(|e| e.to_string())?
-            {
-                Ok(res)
-            } else {
-                Ok(format!(
-                    "⚠️ Échec de la relation entre **{}** et **{}**.",
-                    source_name, target_name
-                ))
-            }
+        EngineeringIntent::CreateElement { ref layer, .. } if layer == "SA" => {
+            let agent = SystemAgent::new();
+            agent.process(&ctx, &intent).await
         }
-
-        // CAS C : GÉNÉRATION DE CODE
+        EngineeringIntent::CreateElement {
+            ref layer,
+            ref element_type,
+            ..
+        } if layer == "LA" || element_type.to_lowercase().contains("software") => {
+            let agent = SoftwareAgent::new();
+            agent.process(&ctx, &intent).await
+        }
+        EngineeringIntent::CreateElement { ref layer, .. } if layer == "PA" => {
+            let agent = HardwareAgent::new();
+            agent.process(&ctx, &intent).await
+        }
+        EngineeringIntent::CreateElement { ref layer, .. } if layer == "EPBS" => {
+            let agent = EpbsAgent::new();
+            agent.process(&ctx, &intent).await
+        }
+        EngineeringIntent::CreateElement { ref layer, .. } if layer == "DATA" => {
+            let agent = DataAgent::new();
+            agent.process(&ctx, &intent).await
+        }
+        EngineeringIntent::CreateElement { ref layer, .. } if layer == "TRANSVERSE" => {
+            let agent = TransverseAgent::new();
+            agent.process(&ctx, &intent).await
+        }
         EngineeringIntent::GenerateCode { .. } => {
-            let root = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-
-            // CORRECTION ICI : On passe 'storage.inner().clone()' comme 2ème argument
-            let sw_agent = SoftwareAgent::new(
-                client.clone(),
-                storage.inner().clone(), // <-- Ajouté
-                root,
-            );
-
-            println!("💻 Délégation au SoftwareAgent...");
-
-            if let Some(res) = sw_agent.process(&intent).await.map_err(|e| e.to_string())? {
-                Ok(res)
-            } else {
-                Ok("⚠️ Impossible de générer le code.".to_string())
-            }
+            let agent = SoftwareAgent::new();
+            agent.process(&ctx, &intent).await
         }
 
-        // CAS D : Chat / RAG
-        EngineeringIntent::Chat | EngineeringIntent::Unknown => {
-            // ... RAG Logic ...
+        // Mode CHAT (RAG)
+        EngineeringIntent::Unknown | EngineeringIntent::Chat => {
+            // ... (Logique RAG existante, simplifiée pour l'exemple) ...
             let storage_clone = storage.inner().clone();
             let project_model = tauri::async_runtime::spawn_blocking(move || {
                 let loader = ModelLoader::from_engine(&storage_clone, "un2", "_system");
@@ -102,13 +108,11 @@ pub async fn ai_chat(
 
             let retriever = SimpleRetriever::new(project_model);
             let context_data = retriever.retrieve_context(&user_input);
-
-            let use_cloud = mode_dual && !gemini_key.is_empty() && is_complex_task(&user_input);
-            let (backend, display_name) = if use_cloud {
-                let name = model_name.unwrap_or_else(|| "Gemini Pro".to_string());
-                (LlmBackend::GoogleGemini, format!("☁️ {} (Cloud)", name))
+            let use_cloud = mode_dual && !gemini_key.is_empty();
+            let (backend, _) = if use_cloud {
+                (LlmBackend::GoogleGemini, "Gemini")
             } else {
-                (LlmBackend::LocalLlama, "🏠 Mistral (Local)".to_string())
+                (LlmBackend::LocalLlama, "Local")
             };
 
             let system_prompt = format!("Tu es GenAptitude. Contexte:\n{}", context_data);
@@ -117,15 +121,17 @@ pub async fn ai_chat(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            Ok(format!("**{}**\n\n{}", display_name, response))
+            // On renvoie un AgentResult "Text Only"
+            Ok(Some(AgentResult::text(response)))
         }
-    }
-}
 
-fn is_complex_task(input: &str) -> bool {
-    let keywords = ["sml", "architecture", "analyse", "complexe", "génère"];
-    input
-        .to_lowercase()
-        .split_whitespace()
-        .any(|w| keywords.contains(&w))
+        _ => Ok(Some(AgentResult::text("Commande non gérée.".to_string()))),
+    };
+
+    // Gestion finale des erreurs
+    match result {
+        Ok(Some(res)) => Ok(res),
+        Ok(None) => Ok(AgentResult::text("Aucune action effectuée.".to_string())),
+        Err(e) => Err(e.to_string()),
+    }
 }

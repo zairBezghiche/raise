@@ -1,229 +1,190 @@
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use reqwest::Client;
+use serde_json::{json, Value};
 use std::time::Duration;
 
-// --- ENUMS & CONFIGURATION ---
-
-/// Choix du moteur d'intelligence
-#[derive(Debug, Clone, Copy)]
+// ✅ AJOUT DE CLONE ICI
+#[derive(Clone, Debug)]
 pub enum LlmBackend {
-    /// Inférence locale (Rapide, Gratuit, Privé)
     LocalLlama,
-    /// Inférence Cloud (Puissant, Raisonnement complexe)
     GoogleGemini,
 }
 
-// --- DTOs COMMUNS (Interne) ---
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: String,
-    pub content: String,
-}
-
-// --- DTOs SPECIFIQUES OPENAI / LLAMA.CPP ---
-
-#[derive(Debug, Serialize)]
-struct OpenAiRequest {
-    model: String,
-    messages: Vec<Message>,
-    temperature: f32,
-    stream: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiResponse {
-    choices: Vec<OpenAiChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiChoice {
-    message: Message,
-    #[serde(default)]
-    #[allow(dead_code)]
-    finish_reason: Option<String>,
-}
-
-// --- DTOs SPECIFIQUES GOOGLE GEMINI ---
-
-#[derive(Debug, Serialize)]
-struct GeminiRequest {
-    contents: Vec<GeminiContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system_instruction: Option<GeminiPartWrapper>,
-    generation_config: GeminiConfig,
-}
-
-// CORRECTION ICI : Ajout de Deserialize car utilisé dans la réponse
-#[derive(Debug, Serialize, Deserialize)]
-struct GeminiContent {
-    role: String,
-    parts: Vec<GeminiPart>,
-}
-
-// CORRECTION ICI : Ajout de Deserialize par sécurité/cohérence
-#[derive(Debug, Serialize, Deserialize)]
-struct GeminiPartWrapper {
-    parts: GeminiPart,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GeminiPart {
-    text: String,
-}
-
-#[derive(Debug, Serialize)]
-struct GeminiConfig {
-    temperature: f32,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiResponse {
-    candidates: Option<Vec<GeminiCandidate>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GeminiCandidate {
-    content: GeminiContent,
-}
-
-// --- CLIENT IA UNIFIÉ ---
-
-#[derive(Clone, Debug)]
+// ✅ AJOUT DE CLONE ICI (Indispensable pour vos Agents)
+#[derive(Clone)]
 pub struct LlmClient {
-    // Config Local
     local_url: String,
-    local_model: String,
-
-    // Config Gemini
-    gemini_api_key: String,
-    gemini_model: String,
-
-    // HTTP Client partagé
-    http_client: reqwest::Client,
+    gemini_key: String,
+    model_name: String,
+    http_client: Client,
 }
 
 impl LlmClient {
-    /// Constructeur Dual-Mode
-    pub fn new(local_url: &str, gemini_key: &str, gemini_model_name: Option<String>) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(300))
-            .build()
-            .unwrap_or_default();
+    pub fn new(local_url: &str, gemini_key: &str, model_name: Option<String>) -> Self {
+        let raw_model = model_name.unwrap_or_else(|| "gemini-1.5-flash-latest".to_string());
+        // Nettoyage préventif
+        let clean_model = raw_model.replace("models/", "");
 
-        // Utilise le modèle demandé ou une valeur par défaut sûre
-        let cloud_model = gemini_model_name.unwrap_or_else(|| "gemini-1.5-pro".to_string());
-
-        Self {
-            local_url: local_url.trim_end_matches('/').to_string(),
-            local_model: "mistral-7b".to_string(),
-            gemini_api_key: gemini_key.to_string(),
-            gemini_model: cloud_model,
-            http_client: client,
+        LlmClient {
+            local_url: local_url.to_string(),
+            gemini_key: gemini_key.to_string(),
+            model_name: clean_model,
+            http_client: Client::new(),
         }
     }
 
-    /// Point d'entrée unique : route vers le bon backend
+    pub async fn ping_local(&self) -> bool {
+        let url = format!("{}/models", self.local_url);
+        match self
+            .http_client
+            .get(&url)
+            .timeout(Duration::from_secs(1))
+            .send()
+            .await
+        {
+            Ok(res) => res.status().is_success(),
+            Err(_) => false,
+        }
+    }
+
+    // --- LOGIQUE DE RETRY (Anti-Crash Quota) ---
     pub async fn ask(
         &self,
         backend: LlmBackend,
         system_prompt: &str,
         user_prompt: &str,
-    ) -> Result<String> {
+    ) -> Result<String, String> {
+        let max_retries = 5;
+        let mut attempt = 0;
+
+        loop {
+            attempt += 1;
+
+            // On passe 'backend' par référence ou clone selon besoin
+            let result = self
+                .ask_internal(&backend, system_prompt, user_prompt)
+                .await;
+
+            match result {
+                Ok(response) => return Ok(response),
+                Err(err) => {
+                    // Si c'est une 404 (Erreur de nom), on ne réessaie pas, on plante direct pour vous avertir.
+                    if err.contains("404") || err.contains("NOT_FOUND") {
+                        return Err(format!("❌ ERREUR CONFIGURATION : {}", err));
+                    }
+
+                    // Si c'est le Quota (429), on attend.
+                    let is_quota = err.contains("429")
+                        || err.contains("RESOURCE_EXHAUSTED")
+                        || err.contains("quota");
+
+                    if !is_quota || attempt >= max_retries {
+                        return Err(err);
+                    }
+
+                    let wait = Duration::from_secs(2u64.pow(attempt));
+                    println!(
+                        "⚠️ Quota API atteint (Tentative {}/{}). Pause de {}s...",
+                        attempt,
+                        max_retries,
+                        wait.as_secs()
+                    );
+                    tokio::time::sleep(wait).await;
+                }
+            }
+        }
+    }
+
+    async fn ask_internal(
+        &self,
+        backend: &LlmBackend,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String, String> {
         match backend {
-            LlmBackend::LocalLlama => self.call_local_llama(system_prompt, user_prompt).await,
+            LlmBackend::LocalLlama => {
+                if self.ping_local().await {
+                    return self
+                        .call_openai_format(&self.local_url, system_prompt, user_prompt)
+                        .await;
+                }
+                println!("⚠️ Local LLM indisponible, bascule sur Gemini...");
+                self.call_google_gemini(system_prompt, user_prompt).await
+            }
             LlmBackend::GoogleGemini => self.call_google_gemini(system_prompt, user_prompt).await,
         }
     }
 
-    // --- IMPLÉMENTATION LOCALE (OpenAI Compatible) ---
-    async fn call_local_llama(&self, system: &str, user: &str) -> Result<String> {
-        let endpoint = format!("{}/v1/chat/completions", self.local_url);
+    async fn call_openai_format(
+        &self,
+        base_url: &str,
+        sys: &str,
+        user: &str,
+    ) -> Result<String, String> {
+        let url = format!("{}/chat/completions", base_url);
+        let body = json!({
+            "model": "local-model",
+            "messages": [
+                { "role": "system", "content": sys },
+                { "role": "user", "content": user }
+            ],
+            "temperature": 0.7
+        });
 
-        let messages = vec![
-            Message {
-                role: "system".to_string(),
-                content: system.to_string(),
-            },
-            Message {
-                role: "user".to_string(),
-                content: user.to_string(),
-            },
-        ];
-
-        let body = OpenAiRequest {
-            model: self.local_model.clone(),
-            messages,
-            temperature: 0.7,
-            stream: false,
-        };
-
-        let res = self.http_client.post(&endpoint).json(&body).send().await?;
-
+        let res = self
+            .http_client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         if !res.status().is_success() {
-            return Err(anyhow::anyhow!("Erreur Llama Local: {}", res.text().await?));
+            return Err(format!("Erreur HTTP Local: {}", res.status()));
         }
-
-        let data: OpenAiResponse = res.json().await?;
-        Ok(data
-            .choices
-            .first()
-            .context("Pas de réponse locale")?
-            .message
-            .content
-            .clone())
+        let json: Value = res.json().await.map_err(|e| e.to_string())?;
+        json["choices"][0]["message"]["content"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Réponse locale malformée".to_string())
     }
 
-    // --- IMPLÉMENTATION GOOGLE (Gemini REST API) ---
-    async fn call_google_gemini(&self, system: &str, user: &str) -> Result<String> {
-        if self.gemini_api_key.is_empty() || self.gemini_api_key == "YOUR_GEMINI_KEY" {
-            return Err(anyhow::anyhow!("Clé API Gemini non configurée"));
-        }
-
-        let endpoint = format!(
+    async fn call_google_gemini(&self, sys: &str, user: &str) -> Result<String, String> {
+        // Construction URL propre
+        let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            self.gemini_model, self.gemini_api_key
+            self.model_name, self.gemini_key
         );
 
-        // Gemini structure
-        let body = GeminiRequest {
-            system_instruction: Some(GeminiPartWrapper {
-                parts: GeminiPart {
-                    text: system.to_string(),
-                },
-            }),
-            contents: vec![GeminiContent {
-                role: "user".to_string(),
-                parts: vec![GeminiPart {
-                    text: user.to_string(),
-                }],
-            }],
-            generation_config: GeminiConfig { temperature: 0.3 },
-        };
+        let combined_prompt = format!("{}\n\nInstruction Utilisateur:\n{}", sys, user);
+        let body = json!({ "contents": [{ "parts": [{ "text": combined_prompt }] }] });
 
-        let res = self.http_client.post(&endpoint).json(&body).send().await?;
+        let res = self
+            .http_client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
 
-        if !res.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "Erreur Gemini Cloud: {}",
-                res.text().await?
-            ));
+        let status = res.status();
+        let text_response = res.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            // On renvoie l'erreur brute pour l'analyse (404, 429...)
+            return Err(format!("Erreur Gemini Cloud: {}", text_response));
         }
 
-        let data: GeminiResponse = res.json().await?;
-
-        if let Some(candidates) = data.candidates {
-            if let Some(first) = candidates.first() {
-                if let Some(part) = first.content.parts.first() {
-                    return Ok(part.text.clone());
+        let json: Value = serde_json::from_str(&text_response).map_err(|e| e.to_string())?;
+        if let Some(candidates) = json.get("candidates") {
+            if let Some(first) = candidates.get(0) {
+                if let Some(content) = first.get("content") {
+                    if let Some(parts) = content.get("parts") {
+                        if let Some(text) = parts[0].get("text") {
+                            return Ok(text.as_str().unwrap_or("").to_string());
+                        }
+                    }
                 }
             }
         }
-
-        Err(anyhow::anyhow!("Gemini a répondu mais sans contenu texte."))
-    }
-
-    pub async fn ping_local(&self) -> bool {
-        self.http_client.get(&self.local_url).send().await.is_ok()
+        Err("Structure JSON Gemini inattendue".to_string())
     }
 }

@@ -1,94 +1,142 @@
-# 🤖 Suite de Tests IA & Agents (`ai_suite`)
+# 🤖 Suite de Tests d'Intégration IA (`ai_suite`)
 
-Ce module de test valide la couche d'intelligence artificielle de GenAptitude. Il s'assure que le système peut communiquer avec les LLMs (Locaux ou Cloud) et que les Agents autonomes (ex: `SystemAgent`) se comportent comme prévu.
+Ce dossier contient les tests "End-to-End" (E2E) validant la chaîne complète de l'Intelligence Artificielle de GenAptitude. Ces tests ne simulent pas seulement la logique, ils vérifient que les **Agents** produisent réellement des fichiers JSON valides sur le disque, conformes au métamodèle Arcadia et résistants aux aléas des LLMs.
 
----
+## 🏗️ Architecture du Test E2E
 
-## 🎯 Objectifs
+Chaque test instancie un environnement isolé (sandbox) et simule le comportement d'un ingénieur demandant une action à l'IA.
 
-Cette suite couvre deux aspects critiques :
-
-1.  **Connectivité (LLM Client)** : Vérifie que la plomberie technique (HTTP, Auth, Timeouts) vers les modèles d'IA fonctionne.
-2.  **Comportement Agentique (Behavior)** : Vérifie qu'un Agent comprend une intention (NLU) et effectue les actions concrètes sur le système de fichiers (JSON-DB).
-
----
-
-## ⚙️ Environnement de Test (`AiTestEnv`)
-
-Défini dans `mod.rs`, cet environnement garantit l'isolation des tests.
-
-- **Stockage Temporaire** : Utilise `tempfile` pour créer une base de données JSON jetable.
-- **Configuration Hybride** :
-  - Charge les variables d'environnement (`.env`) pour les clés API.
-  - Configure un `StorageEngine` pointant vers le dossier temporaire.
-- **Client LLM** : Pré-configuré avec l'URL locale (`localhost:8080`) et la clé Gemini.
-
----
-
-## 🚀 Exécution des Tests
-
-La suite distingue les tests de configuration (rapides) des tests d'inférence (lents/externes).
-
-### 1\. Tests de Configuration (Rapides)
-
-Vérifient uniquement que les clés API sont présentes et que les structures s'instancient.
-
-```bash
-cargo test --test ai_suite
+```text
+┌────────────────┐      1. Init      ┌─────────────────────┐
+│   TEST RUNNER  │ ────────────────▶ │  AiTestEnv (Setup)  │
+└───────┬────────┘                   │ - Temp Dir (/tmp/x) │
+        │                            │ - Storage Engine    │
+        │ 2. Intent                  │ - LLM Client        │
+        ▼                            └──────────┬──────────┘
+┌────────────────┐                              │
+│  AGENT (SUT*)  │ ◀────────────────────────────┘
+└───────┬────────┘
+        │ 3. Prompt (Context + Schema)
+        ▼
+┌────────────────┐      4. JSON      ┌─────────────────────┐
+│  LLM BACKEND   │ ────────────────▶ │    JSON DATABASE    │
+│ (Local/Cloud)  │  (Nettoyage Auto) │   (StorageEngine)   │
+└────────────────┘                   └──────────┬──────────┘
+                                                │
+                                                │ 5. Write .json
+        6. Assertion (Robustesse & Contenu)     ▼
+┌────────────────┐                   ┌─────────────────────┐
+│   VERIFICATION │ ◀──────────────── │  FILESYSTEM (Disk)  │
+└────────────────┘                   └─────────────────────┘
 ```
 
-### 2\. Tests d'Intégration (Nécessite LLM Local)
+\*_SUT : System Under Test_
 
-Ces tests effectuent de vrais appels réseaux vers le LLM. Ils sont marqués `#[ignore]` pour ne pas bloquer la CI/CD standard.
+---
 
-**Prérequis :** Un serveur d'inférence (Llama.cpp / Ollama) doit tourner sur le port 8080.
+## 🛡️ Robustesse & Validation
+
+Ces tests valident spécifiquement la capacité du backend à gérer les **"Small Language Models" (SLM)** locaux (Mistral, Llama 3) qui peuvent être instables.
+
+- **Extraction Chirurgicale** : On vérifie que l'agent ignore le texte "bavard" (Markdown, Intro, Outro) autour du JSON.
+- **Protection des Données** : On vérifie que l'agent force le respect des consignes critiques (ex: le `name` du fichier EPBS doit correspondre à la demande, même si le LLM le renomme).
+- **Tolérance Structurelle** : Les assertions acceptent des variations mineures (ex: liste d'attributs vide si le modèle est "paresseux").
+
+---
+
+## 📂 Catalogue des Scénarios de Test
+
+Les tests sont organisés pour couvrir chaque couche du cycle en V et les aspects transverses.
+
+### Suite Principale (`ai_suite`)
+
+| Couche                | Fichier Test                | Objectif du Scénario                                                            |
+| --------------------- | --------------------------- | ------------------------------------------------------------------------------- |
+| **OA** (Métier)       | `business_agent_tests.rs`   | Analyse d'un besoin flou -> Création de **Capabilities** et **Actors**.         |
+| **SA** (Système)      | `system_agent_tests.rs`     | "Le système doit..." -> Création de **SystemFunctions**.                        |
+| **LA** (Logiciel)     | `software_agent_tests.rs`   | Architecture logique -> Création de **Components**.                             |
+| **PA** (Matériel)     | `hardware_agent_tests.rs`   | Distinction Auto -> **FPGA** (Electronics) vs **Server** (Infrastructure).      |
+| **EPBS** (Config)     | `epbs_agent_tests.rs`       | Industrialisation -> Création de **ConfigurationItems** (P/N généré).           |
+| **DATA** (MDM)        | `data_agent_tests.rs`       | Dictionnaire -> Création de **Classes** et **Enums** (Nettoyage JSON agressif). |
+| **IVVQ** (Transverse) | `transverse_agent_tests.rs` | Cycle Qualité -> **Exigence** -> **TestProcedure** -> **Campagne**.             |
+| **INFRA**             | `llm_tests.rs`              | Vérifie que le serveur LLM (Ollama/Llama) répond (Ping).                        |
+
+### Suite Code (`code_gen_suite`)
+
+| Couche   | Fichier Test     | Objectif du Scénario                                            |
+| -------- | ---------------- | --------------------------------------------------------------- |
+| **CODE** | `agent_tests.rs` | Génération de code source (Rust/Python) avec contexte tolérant. |
+
+---
+
+## 🚀 Exécuter les Tests
+
+Ces tests nécessitent un Backend LLM actif (Localhost:8080 ou Clé API). Ils sont marqués `#[ignore]` pour ne pas bloquer la CI par défaut.
+
+### 1. Lancer toute la suite (Validation Complète)
 
 ```bash
+# Suite principale (Agents de modélisation)
 cargo test --test ai_suite -- --ignored
+
+# Suite de génération de code
+cargo test --test code_gen_suite -- --ignored
+
+```
+
+### 2. Tester un Agent spécifique (Debug Mode)
+
+Utilisez l'option `--nocapture` pour voir les logs `[DEBUG LLM RAW]` et comprendre ce que le LLM renvoie réellement.
+
+**Exemple : Debug Data Agent (Parsing JSON)**
+
+```bash
+cargo test --test ai_suite data_agent_tests -- --ignored --nocapture
+
+```
+
+**Exemple : Debug EPBS Agent (Configuration)**
+
+```bash
+cargo test --test ai_suite epbs_agent_tests -- --ignored --nocapture
+
 ```
 
 ---
 
-## 🧪 Scénarios de Test
+## ⚙️ Configuration (`mod.rs`)
 
-### 1\. Connectivité (`llm_tests.rs`)
+Le fichier `mod.rs` contient la logic de **Setup/Teardown**.
 
-- **`test_cloud_llm_config`** :
-  - Vérifie simplement la présence et la longueur de la clé API Gemini.
-  - _Ne fait pas d'appel réseau._
-- **`test_local_llm_connectivity`** (Ignored) :
-  - Effectue un "Ping" sémantique.
-  - Prompt : _"Tu es un test unitaire. Réponds juste 'PONG'."_
-  - Validation : La réponse ne doit pas être vide.
-
-### 2\. Agents & NLU (`agent_tests.rs`)
-
-- **`test_intent_classification_integration`** (Ignored) :
-  - Valide le `IntentClassifier`.
-  - Input : _"Crée une fonction système nommée 'Démarrer Moteur'"_.
-  - Validation : Vérifie que l'intention retournée est bien `CreateElement`, couche `SA`, type `Function`.
-- **`test_system_agent_creates_actor_end_to_end`** (Critique) :
-  - Teste la chaîne complète : **Intention -\> Agent -\> DB**.
-  - Action : L'agent reçoit l'ordre de créer un Acteur.
-  - Vérification : Le test va scanner physiquement le dossier temporaire `un2/_system/collections/actors` pour vérifier :
-    1.  La présence du fichier JSON.
-    2.  Que le contenu inclut une **description générée par l'IA** (preuve que le LLM a travaillé).
+- **`init_ai_test_env()`** :
+- Charge les variables `.env`.
+- Crée un dossier temporaire unique (ex: `/tmp/.tmpXyZ`).
+- Initialise un `StorageEngine` pointant vers ce dossier.
+- Configure le `LlmClient` (Priorité : Local > Cloud).
 
 ---
 
-## ⚠️ Dépannage
+## ⚠️ Dépannage Fréquent
 
-**`SKIPPED: Serveur local introuvable`**
+**Erreur : `SKIPPED: Pas d'IA disponible**`
 
-> Le client n'a pas réussi à joindre `http://localhost:8080/health`. Vérifiez que votre conteneur Docker ou votre serveur Ollama est lancé.
+> Le test a détecté qu'aucune clé API n'est présente et que `http://localhost:8080/health` ne répond pas. Lancez votre serveur Ollama ou configurez `GENAPTITUDE_GEMINI_KEY`.
 
-**`Assertion failed: found` (dans `agent_tests`)**
+**Erreur : `panicked at ... byte index ... is out of bounds**`
 
-> L'agent a bien tourné, mais le fichier n'a pas été trouvé sur le disque.
+> (Obsolète) Ce crash indiquait un parsing JSON fragile. Il a été corrigé par l'introduction de la méthode `extract_json` sécurisée dans tous les agents. Si cela se reproduit, vérifiez `TransverseAgent` ou `DataAgent`.
+
+**Erreur : `Assertion failed: found**`
+
+> L'agent a fonctionné, mais le contenu du fichier ne contient pas les mots-clés attendus.
 >
-> - Vérifiez que l'agent écrit bien dans l'espace `un2` (défaut).
-> - Vérifiez les logs pour voir si une erreur de validation JSON-Schema a empêché l'écriture.
+> - Vérifiez les logs avec `--nocapture`.
+> - Le LLM a peut-être reformulé le nom (ex: "Server" au lieu de "Rack Server").
 
-**`Panic: Classification échouée`**
+```
 
-> Le LLM a "halluciné" et n'a pas respecté le format de sortie JSON strict demandé par le `IntentClassifier`. Relancez le test (le LLM est non-déterministe) ou ajustez le System Prompt.
+```
+
+```
+
+```

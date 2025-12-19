@@ -8,8 +8,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
-pub mod agent_tests;
+pub mod business_agent_tests;
+pub mod data_agent_tests;
+pub mod epbs_agent_tests;
+pub mod hardware_agent_tests;
 pub mod llm_tests;
+pub mod software_agent_tests;
+pub mod system_agent_tests;
+pub mod transverse_agent_tests;
 
 static INIT: Once = Once::new();
 

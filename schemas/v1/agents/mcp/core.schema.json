@@ -138,6 +138,9 @@
   "required": ["transport"],
   "allOf": [
     {
+      "$ref": "../../common/base.schema.json"
+    },
+    {
       "if": {
         "properties": {
           "transport": {

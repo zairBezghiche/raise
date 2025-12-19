@@ -1,244 +1,115 @@
-use crate::ai::agents::{Agent, EngineeringIntent};
-use crate::ai::llm::client::{LlmBackend, LlmClient};
-use crate::json_db::collections::manager::CollectionsManager;
-use crate::json_db::storage::StorageEngine;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde_json::json;
+use uuid::Uuid;
 
-pub struct SystemAgent {
-    llm: LlmClient,
-    storage: StorageEngine,
-    space: String,
-    db: String,
-}
+use super::intent_classifier::EngineeringIntent;
+use super::{Agent, AgentContext, AgentResult, CreatedArtifact}; // <--- Update imports
+use crate::ai::llm::client::LlmBackend;
+
+#[derive(Default)]
+pub struct SystemAgent;
 
 impl SystemAgent {
-    pub fn new(llm: LlmClient, storage: StorageEngine) -> Self {
-        Self {
-            llm,
-            storage,
-            space: "un2".to_string(),
-            db: "_system".to_string(),
-        }
+    pub fn new() -> Self {
+        Self
     }
 
-    /// Recherche intelligente : gère la casse et les articles (Le, La...)
-    fn find_id_by_name(&self, collection: &str, name: &str) -> Result<Option<String>> {
-        let mgr = CollectionsManager::new(&self.storage, &self.space, &self.db);
+    async fn enrich_sa_element(
+        &self,
+        ctx: &AgentContext,
+        name: &str,
+        element_type: &str,
+    ) -> Result<serde_json::Value> {
+        let system_prompt = "Tu es un Architecte Système expert (Arcadia/Capella).
+        Ton but est de définir un élément de l'analyse système (SA).
+        Génère uniquement du JSON valide.";
 
-        // Si la collection n'existe pas encore, on ne peut rien trouver
-        if !self
-            .storage
-            .config
-            .db_collection_path(&self.space, &self.db, collection)
-            .exists()
-        {
-            return Ok(None);
-        }
-
-        let docs = mgr.list_all(collection)?;
-
-        // Normalisation de la requête : "Le Superviseur" -> "superviseur"
-        let clean_search = name
-            .to_lowercase()
-            .replace("le ", "")
-            .replace("la ", "")
-            .replace("l'", "")
-            .trim()
-            .to_string();
-
-        for doc in docs {
-            if let Some(doc_name) = doc.get("name").and_then(|v| v.as_str()) {
-                let clean_doc_name = doc_name.to_lowercase();
-
-                // Match exact ou match "nettoyé"
-                if clean_doc_name == name.to_lowercase() || clean_doc_name == clean_search {
-                    let id = doc.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-                    return Ok(Some(id.to_string()));
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    async fn generate_description(&self, element_type: &str, name: &str) -> String {
-        let prompt = format!(
-            "Génère une description technique courte (1 phrase) pour un '{}' nommé '{}' dans un contexte d'ingénierie système. \
-            Réponds impérativement en Français. Sois factuel.",
+        let user_prompt = format!(
+            "Crée un objet JSON pour un '{}' (SA).
+            Nom: {}
+            Génère une description technique pertinente.
+            Format attendu: {{ \"name\": \"str\", \"description\": \"str\" }}",
             element_type, name
         );
 
-        self.llm
-            .ask(
-                LlmBackend::LocalLlama,
-                "Tu es un assistant ingénieur.",
-                &prompt,
-            )
+        let response = ctx
+            .llm
+            .ask(LlmBackend::LocalLlama, system_prompt, &user_prompt)
             .await
-            .unwrap_or_else(|_| "Description générée par IA.".to_string())
+            .map_err(|e| anyhow!("Erreur LLM System: {}", e))?;
+
+        let clean_json = response
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+
+        let mut data: serde_json::Value = serde_json::from_str(clean_json)
+            .unwrap_or(json!({ "name": name, "description": "Généré par SystemAgent (Fallback)" }));
+
+        data["id"] = json!(Uuid::new_v4().to_string());
+        data["layer"] = json!("SA");
+        data["type"] = json!(format!("System{}", element_type));
+        data["createdAt"] = json!(chrono::Utc::now().to_rfc3339());
+
+        Ok(data)
     }
 }
 
 #[async_trait]
 impl Agent for SystemAgent {
-    async fn process(&self, intent: &EngineeringIntent) -> Result<Option<String>> {
+    fn id(&self) -> &'static str {
+        "system_architect"
+    }
+
+    async fn process(
+        &self,
+        ctx: &AgentContext,
+        intent: &EngineeringIntent,
+    ) -> Result<Option<AgentResult>> {
+        // <--- Nouvelle Signature
         match intent {
-            // --- CAS 1 : CRÉATION D'ÉLÉMENT ---
             EngineeringIntent::CreateElement {
                 layer,
                 element_type,
                 name,
-            } => {
-                if layer != "OA" && layer != "SA" {
-                    return Ok(None);
-                }
+            } if layer == "SA" => {
+                let doc = self.enrich_sa_element(ctx, name, element_type).await?;
+                let doc_id = doc["id"].as_str().unwrap_or("unknown").to_string();
 
-                println!("🤖 SystemAgent: Création de {} {}...", layer, name);
-
-                // Mapping des schémas (Corrects)
-                let (collection, type_uri, schema_rel) =
-                    match (layer.as_str(), element_type.as_str()) {
-                        ("OA", "Actor") => (
-                            "actors",
-                            "oa:OperationalActor",
-                            "arcadia/oa/actor.schema.json",
-                        ),
-                        ("OA", "Activity") => (
-                            "activities",
-                            "oa:OperationalActivity",
-                            "arcadia/oa/activity.schema.json",
-                        ),
-                        ("SA", "Function") => (
-                            "functions",
-                            "sa:SystemFunction",
-                            "arcadia/sa/system-function.schema.json",
-                        ),
-                        ("SA", "Component") => (
-                            "components",
-                            "sa:SystemComponent",
-                            "arcadia/sa/system-component.schema.json",
-                        ),
-                        _ => return Err(anyhow!("Type non supporté: {}/{}", layer, element_type)),
-                    };
-
-                // Check doublon
-                if let Ok(Some(existing_id)) = self.find_id_by_name(collection, name) {
-                    return Ok(Some(format!(
-                        "⚠️ L'élément **{}** existe déjà (ID: `{}`).",
-                        name, existing_id
-                    )));
-                }
-
-                let schema_uri =
-                    format!("db://{}/{}/schemas/v1/{}", self.space, self.db, schema_rel);
-                let document_schema_ref = format!("../../../schemas/v1/{}", schema_rel);
-                let description = self.generate_description(element_type, name).await;
-
-                let doc = json!({
-                    "$schema": document_schema_ref,
-                    "@context": {
-                        "oa": "https://genaptitude.io/ontology/arcadia/oa#",
-                        "sa": "https://genaptitude.io/ontology/arcadia/sa#",
-                        "name": "http://www.w3.org/2004/02/skos/core#prefLabel"
-                    },
-                    "@type": type_uri,
-                    "name": name,
-                    "description": description,
-                    "status": "draft_ai"
-                });
-
-                let mgr = CollectionsManager::new(&self.storage, &self.space, &self.db);
-                mgr.create_collection(collection, Some(schema_uri.clone()))?;
-                let saved = mgr.insert_with_schema(collection, doc)?;
-                let id = saved.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-
-                Ok(Some(format!(
-                    "✅ Créé : **{}** (Type: {}).\nID: `{}`",
-                    name, element_type, id
-                )))
-            }
-
-            // --- CAS 2 : CRÉATION DE RELATION (Implémenté !) ---
-            EngineeringIntent::CreateRelationship {
-                source_name,
-                target_name,
-                relation_type,
-            } => {
-                println!(
-                    "🤖 SystemAgent: Link '{}' -> '{}' ({})",
-                    source_name, target_name, relation_type
-                );
-
-                let mgr = CollectionsManager::new(&self.storage, &self.space, &self.db);
-
-                // 1. Trouver la Source (On cherche large : Acteurs ou Composants)
-                let (source_id, source_coll) =
-                    if let Some(id) = self.find_id_by_name("actors", source_name)? {
-                        (id, "actors")
-                    } else if let Some(id) = self.find_id_by_name("components", source_name)? {
-                        (id, "components")
-                    } else {
-                        return Ok(Some(format!(
-                            "❌ Impossible de trouver l'élément source **{}**.",
-                            source_name
-                        )));
-                    };
-
-                // 2. Trouver la Cible (Activités ou Fonctions)
-                let target_id = if let Some(id) = self.find_id_by_name("activities", target_name)? {
-                    id
-                } else if let Some(id) = self.find_id_by_name("functions", target_name)? {
-                    id
-                } else {
-                    return Ok(Some(format!(
-                        "❌ Impossible de trouver l'élément cible **{}**.",
-                        target_name
-                    )));
+                let collection = match element_type.to_lowercase().as_str() {
+                    "function" | "fonction" => "functions",
+                    "actor" | "acteur" => "actors",
+                    "component" | "composant" | "system" | "système" => "components",
+                    "capability" | "capacité" => "capabilities",
+                    _ => "functions",
                 };
 
-                // 3. Charger et Modifier
-                let mut source_doc = mgr
-                    .get(source_coll, &source_id)?
-                    .context("Doc source perdu")?;
+                let relative_path = format!("un2/sa/collections/{}/{}.json", collection, doc_id);
+                let path = ctx.paths.domain_root.join(&relative_path);
 
-                // Choix du champ selon le type (OA vs SA)
-                // OA: Actor -> allocatedActivities
-                // SA: Component -> allocatedFunctions
-                let field_name = if source_coll == "actors" {
-                    "allocatedActivities"
-                } else {
-                    "allocatedFunctions"
-                };
-
-                if let Some(obj) = source_doc.as_object_mut() {
-                    if !obj.contains_key(field_name) {
-                        obj.insert(field_name.to_string(), json!([]));
-                    }
-
-                    if let Some(list) = obj.get_mut(field_name).and_then(|v| v.as_array_mut()) {
-                        let link_obj = json!({ "id": target_id });
-                        // Anti-doublon
-                        if !list
-                            .iter()
-                            .any(|x| x.get("id").and_then(|v| v.as_str()) == Some(&target_id))
-                        {
-                            list.push(link_obj);
-                        } else {
-                            return Ok(Some("ℹ️ Le lien existe déjà.".to_string()));
-                        }
-                    }
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
                 }
+                std::fs::write(&path, serde_json::to_string_pretty(&doc)?)?;
 
-                // 4. Sauvegarder
-                mgr.update_document(source_coll, &source_id, source_doc)?;
-
-                Ok(Some(format!(
-                    "🔗 Relation établie : **{}** -> **{}**.",
-                    source_name, target_name
-                )))
+                // Construction de la réponse structurée
+                Ok(Some(AgentResult {
+                    message: format!("J'ai défini l'élément **{}** dans l'analyse système.", name),
+                    artifacts: vec![CreatedArtifact {
+                        id: doc_id,
+                        name: name.clone(),
+                        layer: "SA".to_string(),
+                        element_type: element_type.clone(),
+                        path: relative_path,
+                    }],
+                }))
             }
-
+            EngineeringIntent::CreateRelationship { .. } => Ok(Some(AgentResult::text(
+                "⚠️ SystemAgent: Les relations (DataFlow) sont en cours de migration.".to_string(),
+            ))),
             _ => Ok(None),
         }
     }

@@ -2,79 +2,119 @@
 
 Ce répertoire regroupe les hooks React personnalisés qui encapsulent la logique métier, la gestion d'état complexe et les interactions avec le backend Tauri (Rust). Ils permettent de garder les composants UI propres et focalisés sur le rendu.
 
-## 📂 Liste des Hooks
+---
 
-### 🧠 Intégration IA & Modèle
+## 📂 Catégorie : Intelligence Artificielle & Modélisation
 
-#### `useRulesEngine` (`useRulesEngine.ts`)
+Ces hooks pilotent le cœur "métier" de GenAptitude (MBAIE, Chat, Génération).
 
-Gère l'interaction réactive avec le moteur de règles **GenRules**.
+### `useAIChat` (`useAIChat.ts`)
+
+Gère l'interaction conversationnelle avec l'assistant IA.
+
+- **Rôle** : Interface entre l'UI de chat et le backend Rust (`invoke('ai_chat')`).
+- **Store** : Connecté au `useAiStore` global pour la persistance de l'état (messages, loading).
+- **Gestion des Artefacts** : Traite non seulement le texte, mais aussi les **Artefacts** visuels (Cartes JSON retournées par l'IA) qui sont injectés dans l'historique des messages.
+- **Sécurité** : Gestion robuste des erreurs et état "Thinking".
+
+### `useModelState` (`useModelState.ts`)
+
+Façade simplifiée pour accéder au modèle Arcadia/SysML actif (via `ModelStore`).
+
+- **Rôle** : Fournit un accès direct au projet courant et à l'élément sélectionné.
+- **Fonctionnalité** : Transforme l'ID sélectionné (`selectedElementId`) en objet complet (`selectedElement`) pour faciliter l'affichage dans l'UI.
+- **Usage** : Utilisé par les panneaux de propriétés et les vues de diagrammes.
+
+### `useCodeGeneration` (`useCodeGeneration.ts`)
+
+Pilote le processus de génération de code source (Rust, SQL, Python...) à partir du modèle.
+
+- **Rôle** : Coordonne la demande vers le `codegenService` en utilisant le contexte du projet chargé.
+- **Sécurité** : Vérifie qu'un projet est bien chargé avant de lancer la génération.
+- **Utilitaire** : Inclut une méthode `copyToClipboard` pour copier le résultat généré.
+
+---
+
+## 📂 Catégorie : Moteur de Règles (GenRules)
+
+### `useRulesEngine` (`useRulesEngine.ts`)
+
+Gère l'interaction réactive avec le moteur de règles JSON-DB.
 
 - **Rôle** : Synchronise un document "brouillon" (Draft) avec le backend pour recalculer les champs dérivés en temps réel.
-- **Fonctionnalités** :
-  - **Debounce** : Attend que l'utilisateur arrête de taper (défaut 500ms) avant d'appeler le backend.
-  - **Calcul** : Appelle la commande `jsondb_evaluate_draft`.
-  - **Protection** : Évite les boucles infinies de mise à jour grâce à une référence (`useRef`) du dernier état validé.
-- **Usage** : Utilisé par les formulaires de démo (`InvoiceDemo`, `ModelRulesDemo`).
+- **Logique** :
+  - **Debounce** : Temporise les appels au backend (défaut 500ms) pour éviter de surcharger le moteur pendant la frappe.
+  - **Évaluation** : Appelle la commande Rust `jsondb_evaluate_draft`.
+  - **Stabilité** : Utilise `useRef` pour comparer les états JSON et éviter les boucles infinies de rendu React.
 
-#### `useAIChat` (`useAIChat.ts`)
+---
 
-Encapsule la logique conversationnelle avec les LLMs.
+## 📂 Catégorie : Utilitaires Système & Tauri
 
-- **Rôle** : Gère l'historique des messages, l'état "Thinking" et l'envoi vers Rust.
-- **Backend** : Bascule dynamiquement entre un mode `mock` (simulation JS) et `tauri-local` (appel réel `invoke('ai_chat')`) selon la configuration globale.
-- **Store** : Connecté au `useAiStore` pour persister la session.
-
-#### `useCodeGeneration` (`useCodeGeneration.ts`)
-
-Gère le processus de génération de code source à partir du modèle.
-
-- **Rôle** : Coordonne la demande de génération vers le `codegenService`.
-- **Contexte** : Utilise automatiquement le `currentProject` chargé dans le `ModelStore`.
-- **Utilitaire** : Fournit une méthode `copyToClipboard` pour copier le résultat.
-
-#### `useModelState` (`useModelState.ts`)
-
-Façade simplifiée pour accéder au `ModelStore` (Arcadia/Capella).
-
-- **Rôle** : Fournit des accesseurs dérivés pratiques (ex: `selectedElement` objet complet au lieu de juste l'ID) et les actions de mutation.
-- **Avantage** : Abstrait la complexité de `Zustand` pour les composants simples.
-
-### 🛠️ Utilitaires Système
-
-#### `useFileSystem` (`useFileSystem.ts`)
+### `useFileSystem` (`useFileSystem.ts`)
 
 Wrapper autour de l'API Fichiers de Tauri v2 (`@tauri-apps/plugin-fs`).
 
-- **Rôle** : Simplifie la lecture/écriture de fichiers JSON typés.
-- **Sécurité** : Configure par défaut le `BaseDirectory.AppLocalData` pour isoler les données de l'application.
+- **Rôle** : Simplifie la lecture et l'écriture de fichiers JSON typés.
+- **Configuration** : Cible par défaut le répertoire `BaseDirectory.AppLocalData` pour sécuriser et isoler les données de l'application.
 
-#### `useTauriEvent` (`useTauriEvent.ts`)
+### `useTauriEvent` (`useTauriEvent.ts`)
 
 Abonnement déclaratif aux événements globaux Tauri.
 
-- **Rôle** : Attache un écouteur d'événement (`listen`) au montage du composant et le nettoie (`unlisten`) automatiquement au démontage.
-- **Usage** : Idéal pour écouter les logs backend ou les notifications asynchrones.
+- **Rôle** : Attache un écouteur (`listen`) au montage du composant et le nettoie (`unlisten`) automatiquement au démontage.
+- **Usage** : Indispensable pour écouter les logs asynchrones du backend ou les notifications push sans fuite de mémoire.
 
-## 📦 Exemple d'Utilisation
+---
+
+## 📦 Exemples d'Utilisation
+
+### Exemple 1 : Chat IA
+
+```typescript
+import { useAIChat } from '@/hooks/useAIChat';
+
+function ChatBox() {
+  const { messages, sendMessage, isThinking } = useAIChat();
+
+  return (
+    <div>
+      {messages.map((m) => (
+        <div key={m.id}>{m.content}</div>
+      ))}
+
+      <input
+        onKeyDown={(e) => e.key === 'Enter' && sendMessage(e.currentTarget.value)}
+        disabled={isThinking}
+      />
+    </div>
+  );
+}
+```
+
+### Exemple 2 : Formulaire Réactif (Moteur de Règles)
 
 ```typescript
 import { useRulesEngine } from '@/hooks/useRulesEngine';
 
-function MyForm() {
+function InvoiceForm() {
   // Le hook gère tout le cycle de vie : saisie -> debounce -> calcul -> mise à jour
   const { doc, handleChange, isCalculating } = useRulesEngine({
     space: 'demo',
-    db: 'test',
+    db: 'billing',
     collection: 'invoices',
-    initialDoc: { total: 0 },
+    initialDoc: { qty: 1, price: 10 }, // Total calculé par le backend
   });
 
   return (
     <div>
-      <input onChange={(e) => handleChange('qty', e.target.value)} />
-      {isCalculating && <span>Calcul en cours...</span>}
-      <div>Total: {doc.total}</div>
+      <input
+        type="number"
+        value={doc.qty as number}
+        onChange={(e) => handleChange('qty', Number(e.target.value))}
+      />
+      {isCalculating && <span>Calcul...</span>}
+      <div>Total (Calculé): {doc.total}</div>
     </div>
   );
 }

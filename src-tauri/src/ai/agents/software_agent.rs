@@ -1,145 +1,137 @@
-use crate::ai::agents::{Agent, EngineeringIntent};
-use crate::ai::llm::client::{LlmBackend, LlmClient};
-use crate::code_generator::{CodeGeneratorService, TargetLanguage};
-use crate::json_db::collections::manager::CollectionsManager;
-use crate::json_db::storage::StorageEngine;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use std::fs;
-use std::path::PathBuf;
+use serde_json::json;
+use uuid::Uuid;
 
-pub struct SoftwareAgent {
-    llm: LlmClient,
-    storage: StorageEngine,
-    output_dir: PathBuf,
-}
+use super::intent_classifier::EngineeringIntent;
+use super::{Agent, AgentContext, AgentResult, CreatedArtifact}; // <--- Imports
+use crate::ai::llm::client::LlmBackend;
+
+#[derive(Default)]
+pub struct SoftwareAgent;
 
 impl SoftwareAgent {
-    pub fn new(llm: LlmClient, storage: StorageEngine, root_path: PathBuf) -> Self {
-        Self {
-            llm,
-            storage,
-            output_dir: root_path.join("gen_workspace"),
-        }
+    pub fn new() -> Self {
+        Self {}
     }
 
-    /// Cherche un élément dans la DB de manière souple (ignorant casse et espaces)
-    fn find_element_by_name(&self, name: &str) -> Result<serde_json::Value> {
-        let mgr = CollectionsManager::new(&self.storage, "un2", "_system");
+    async fn ask_llm(&self, ctx: &AgentContext, system: &str, user: &str) -> Result<String> {
+        ctx.llm
+            .ask(LlmBackend::LocalLlama, system, user)
+            .await
+            .map_err(|e| anyhow!("Erreur LLM : {}", e))
+    }
 
-        // Normalisation de la requête : "ControleurDeVol" -> "controleurdevol"
-        let search_normalized = name.to_lowercase().replace(" ", "").replace("_", "");
+    async fn enrich_logical_component(
+        &self,
+        ctx: &AgentContext,
+        name: &str,
+        description: &str,
+    ) -> Result<serde_json::Value> {
+        let system_prompt = "Tu es un Architecte Logiciel. Génère uniquement du JSON valide.";
+        let user_prompt = format!(
+            "Crée un objet JSON pour un Composant Logique Arcadia (LA).
+            Nom: {}
+            Intention: {}
+            Schéma: {{ \"name\": \"str\", \"is_abstract\": bool, \"implementation_language\": \"rust\" }}",
+            name, description
+        );
 
-        // On cherche dans les acteurs en priorité
-        let collections_to_scan = vec!["actors", "functions", "components", "activities"];
+        let response = self.ask_llm(ctx, system_prompt, &user_prompt).await?;
 
-        for col in collections_to_scan {
-            // On ignore si la collection n'existe pas encore
-            if let Ok(docs) = mgr.list_all(col) {
-                for doc in docs {
-                    if let Some(n) = doc.get("name").and_then(|v| v.as_str()) {
-                        // Normalisation de la donnée DB : "Controleur De Vol" -> "controleurdevol"
-                        let db_normalized = n.to_lowercase().replace(" ", "").replace("_", "");
+        let clean_json = response
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
 
-                        // Comparaison souple
-                        if db_normalized == search_normalized
-                            || db_normalized.contains(&search_normalized)
-                        {
-                            return Ok(doc);
-                        }
-                    }
-                }
-            }
-        }
+        let mut data: serde_json::Value = serde_json::from_str(clean_json)
+            .unwrap_or(json!({ "name": name, "description": description }));
 
-        Err(anyhow!(
-            "Élément '{}' non trouvé en base (recherche normalisée : '{}').",
-            name,
-            search_normalized
-        ))
+        data["id"] = json!(Uuid::new_v4().to_string());
+        data["layer"] = json!("LA");
+        data["createdAt"] = json!(chrono::Utc::now().to_rfc3339());
+
+        Ok(data)
     }
 }
 
 #[async_trait]
 impl Agent for SoftwareAgent {
-    async fn process(&self, intent: &EngineeringIntent) -> Result<Option<String>> {
+    fn id(&self) -> &'static str {
+        "software_engineer"
+    }
+
+    async fn process(
+        &self,
+        ctx: &AgentContext,
+        intent: &EngineeringIntent,
+    ) -> Result<Option<AgentResult>> {
+        // <--- Signature
         match intent {
+            EngineeringIntent::CreateElement {
+                layer: _,
+                element_type,
+                name,
+            } => {
+                let doc = self
+                    .enrich_logical_component(ctx, name, &format!("Type: {}", element_type))
+                    .await?;
+                let doc_id = doc["id"].as_str().unwrap_or("unknown").to_string();
+
+                let relative_path = format!("un2/la/collections/components/{}.json", doc_id);
+                let path = ctx.paths.domain_root.join(&relative_path);
+
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&path, serde_json::to_string_pretty(&doc)?)?;
+
+                Ok(Some(AgentResult {
+                    message: format!("Composant logiciel **{}** modélisé.", name),
+                    artifacts: vec![CreatedArtifact {
+                        id: doc_id,
+                        name: name.clone(),
+                        layer: "LA".to_string(),
+                        element_type: "Component".to_string(),
+                        path: relative_path,
+                    }],
+                }))
+            }
+
             EngineeringIntent::GenerateCode {
                 language,
-                filename,
                 context,
+                filename,
             } => {
-                println!(
-                    "💻 SoftwareAgent: Début de la génération hybride pour {}...",
-                    filename
-                );
+                let user = format!("Code pour: {}\nLangage: {}", context, language);
+                let code = self
+                    .ask_llm(ctx, "Expert Code. Pas de markdown.", &user)
+                    .await?;
 
-                // 1. DÉTECTION
-                // On retire l'extension pour trouver le nom probable (ex: "Superviseur.rs" -> "Superviseur")
-                let target_name = filename.split('.').next().unwrap_or("Unknown");
+                let clean_code = code.replace("```rust", "").replace("```", "");
 
-                println!("🔍 Recherche de l'élément '{}' dans la DB...", target_name);
-                let element_doc = self.find_element_by_name(target_name)
-                    .context("Impossible de trouver l'élément source pour générer le code. Avez-vous créé l'acteur avant ?")?;
+                let relative_path = format!("src-gen/{}", filename);
+                let path = ctx.paths.domain_root.join(&relative_path);
 
-                // 2. GÉNÉRATION SYMBOLIQUE
-                println!("🏗️ Appel du CodeGenerator (Templates)...");
-                let lang_enum = match language.to_lowercase().as_str() {
-                    "rust" => TargetLanguage::Rust,
-                    "typescript" | "ts" => TargetLanguage::TypeScript, // Prévision
-                    _ => {
-                        return Err(anyhow!(
-                            "Seul Rust est supporté pour le mode hybride pour l'instant."
-                        ))
-                    }
-                };
-
-                let generator = CodeGeneratorService::new(self.output_dir.clone());
-                let generated_files = generator.generate_for_element(&element_doc, lang_enum)?;
-
-                if generated_files.is_empty() {
-                    return Err(anyhow!("Le générateur n'a produit aucun fichier."));
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
                 }
+                std::fs::write(&path, clean_code.trim())?;
 
-                let main_file_path = &generated_files[0];
-
-                // 3. INJECTION NEURONALE
-                println!("🧠 Appel du LLM pour injection de logique...");
-
-                let mut code_content = fs::read_to_string(main_file_path)?;
-                let marker = "// AI_INJECTION_POINT";
-
-                if code_content.contains(marker) {
-                    let prompt = format!(
-                        "Tu es un expert Rust. Voici un contexte métier : '{}'. \
-                        Écris uniquement les lignes de code Rust (println, calculs, logic) pour implémenter ce contexte. \
-                        Ne réécris PAS la fonction, juste le corps. Pas de markdown.", 
-                        context
-                    );
-
-                    let logic_code = self
-                        .llm
-                        .ask(
-                            LlmBackend::LocalLlama,
-                            "Tu es un générateur de code concis.",
-                            &prompt,
-                        )
-                        .await?;
-                    let clean_logic = logic_code
-                        .replace("```rust", "")
-                        .replace("```", "")
-                        .trim()
-                        .to_string();
-
-                    code_content = code_content.replace(marker, &clean_logic);
-                    fs::write(main_file_path, code_content)?;
-                }
-
-                Ok(Some(format!(
-                    "💾 Code Hybride Généré !\nFichier : `{}`\nBase : Template Rust\nLogique : Injectée par IA", 
-                    main_file_path.display()
-                )))
+                Ok(Some(AgentResult {
+                    message: format!("Code source généré dans **{}**.", filename),
+                    artifacts: vec![CreatedArtifact {
+                        id: filename.clone(),
+                        name: filename.clone(),
+                        layer: "CODE".to_string(),
+                        element_type: "SourceFile".to_string(),
+                        path: relative_path,
+                    }],
+                }))
             }
+
             _ => Ok(None),
         }
     }
