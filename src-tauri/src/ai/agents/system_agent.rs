@@ -4,8 +4,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::intent_classifier::EngineeringIntent;
-use super::{Agent, AgentContext, AgentResult, CreatedArtifact}; // <--- Update imports
+use super::{Agent, AgentContext, AgentResult, CreatedArtifact};
 use crate::ai::llm::client::LlmBackend;
+// 1. AJOUT : Import du module NLP que nous avons validé
+use crate::ai::nlp::entity_extractor;
 
 #[derive(Default)]
 pub struct SystemAgent;
@@ -21,16 +23,34 @@ impl SystemAgent {
         name: &str,
         element_type: &str,
     ) -> Result<serde_json::Value> {
+        // 2. INTELLIGENCE : On utilise l'extracteur d'entités sur le nom fourni
+        let entities = entity_extractor::extract_entities(name);
+
+        // 3. CONTEXTE : On construit un guide pour le LLM
+        let mut nlp_hint = String::new();
+        if !entities.is_empty() {
+            nlp_hint.push_str("\n[VOCABULAIRE DÉTECTÉ]:\n");
+            for entity in entities {
+                nlp_hint.push_str(&format!(
+                    "- Terme: '{}' (Catégorie: {:?})\n",
+                    entity.text, entity.category
+                ));
+            }
+            nlp_hint.push_str("Utilise ces termes précis dans la description technique.\n");
+        }
+
         let system_prompt = "Tu es un Architecte Système expert (Arcadia/Capella).
         Ton but est de définir un élément de l'analyse système (SA).
         Génère uniquement du JSON valide.";
 
+        // 4. PROMPT : On injecte le 'nlp_hint' dans la demande
         let user_prompt = format!(
             "Crée un objet JSON pour un '{}' (SA).
             Nom: {}
-            Génère une description technique pertinente.
+            {} 
+            Génère une description technique pertinente en Français.
             Format attendu: {{ \"name\": \"str\", \"description\": \"str\" }}",
-            element_type, name
+            element_type, name, nlp_hint
         );
 
         let response = ctx
@@ -69,7 +89,6 @@ impl Agent for SystemAgent {
         ctx: &AgentContext,
         intent: &EngineeringIntent,
     ) -> Result<Option<AgentResult>> {
-        // <--- Nouvelle Signature
         match intent {
             EngineeringIntent::CreateElement {
                 layer,
@@ -95,7 +114,6 @@ impl Agent for SystemAgent {
                 }
                 std::fs::write(&path, serde_json::to_string_pretty(&doc)?)?;
 
-                // Construction de la réponse structurée
                 Ok(Some(AgentResult {
                     message: format!("J'ai défini l'élément **{}** dans l'analyse système.", name),
                     artifacts: vec![CreatedArtifact {

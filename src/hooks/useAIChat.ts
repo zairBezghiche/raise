@@ -1,11 +1,20 @@
 import { useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+// On remplace l'invoke direct par le service centralisé
+import { aiService } from '@/services/ai-service';
 import { useAiStore } from '@/store/ai-store';
-import { ChatMessage, AgentResult } from '@/types/ai.types';
+import { ChatMessage } from '@/types/ai.types';
 
 export function useAIChat() {
-  // On utilise le store global pour l'état (messages, loading...)
-  const { messages, isThinking, error, addMessage, setThinking, setError, clear } = useAiStore();
+  // On récupère les actions du store global
+  const {
+    messages,
+    isThinking,
+    error,
+    addMessage,
+    setThinking,
+    setError,
+    clear: clearStore,
+  } = useAiStore();
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -25,28 +34,31 @@ export function useAIChat() {
       setError(undefined);
 
       try {
-        console.log('🚀 Envoi vers Rust (ai_chat)...');
+        console.log('🚀 Envoi vers Rust via aiService...');
 
-        // 2. Appel Backend
-        const response = await invoke<AgentResult>('ai_chat', { userInput: text });
+        // 2. Appel Backend via le Service (plus propre que invoke direct)
+        const response = await aiService.chat(text);
 
-        // 3. On crée la réponse de l'assistant avec les cartes (artefacts)
+        // 3. On crée la réponse de l'assistant
         const aiMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: response.message, // Le texte explicatif
-          artifacts: response.artifacts, // Les cartes visuelles
+          // CORRECTION MAJEURE : Le backend retourne maintenant 'content' et non 'message'
+          content: response.content,
+          // Les artefacts sont optionnels dans le nouveau type, on sécurise avec || []
+          artifacts: response.artifacts || [],
           createdAt: new Date().toISOString(),
         };
         addMessage(aiMsg);
       } catch (err) {
         console.error('❌ Erreur AI:', err);
-        setError(String(err));
+        const errorString = err instanceof Error ? err.message : String(err);
+        setError(errorString);
 
         const errorMsg: ChatMessage = {
           id: Date.now().toString(),
           role: 'assistant',
-          content: `⚠️ Erreur système : ${err}`,
+          content: `⚠️ Erreur système : ${errorString}`,
           createdAt: new Date().toISOString(),
         };
         addMessage(errorMsg);
@@ -57,5 +69,25 @@ export function useAIChat() {
     [addMessage, setThinking, setError],
   );
 
-  return { messages, isThinking, error, sendMessage, clear };
+  // 4. Nouvelle fonction de nettoyage qui vide le Backend ET le Frontend
+  const clear = useCallback(async () => {
+    try {
+      // On vide la mémoire conversationnelle du côté Rust
+      await aiService.resetMemory();
+      // Puis on vide l'affichage côté React
+      clearStore();
+    } catch (e) {
+      console.error('Erreur lors du reset mémoire:', e);
+      // On vide quand même le store local pour ne pas bloquer l'UI
+      clearStore();
+    }
+  }, [clearStore]);
+
+  return {
+    messages,
+    isThinking,
+    error,
+    sendMessage,
+    clear, // Retourne notre version "intelligente" de clear
+  };
 }

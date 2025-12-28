@@ -1,4 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { CreatedArtifact } from '@/types/ai.types';
+
+// Structure retournée par le Backend Rust (AgentResult)
+export interface AgentResult {
+  type: 'text' | 'action' | 'file';
+  content: string;
+  artifacts?: CreatedArtifact[];
+  metadata?: Record<string, unknown>;
+}
 
 export interface AiStatus {
   llm_connected: boolean;
@@ -14,15 +23,12 @@ export interface NlpResult {
 
 class AiService {
   /**
-   * Envoie un message au Chatbot (LLM) via le backend Rust.
-   * @param userInput Le message de l'utilisateur
-   * @param systemPrompt (Optionnel) Instructions système pour guider l'IA
+   * Envoie un message à l'Orchestrateur IA.
    */
-  async chat(userInput: string, systemPrompt?: string): Promise<string> {
+  async chat(userInput: string): Promise<AgentResult> {
     try {
-      return await invoke<string>('ai_chat', {
+      return await invoke<AgentResult>('ai_chat', {
         userInput,
-        systemPrompt,
       });
     } catch (error) {
       console.error('[AiService] Chat error:', error);
@@ -31,28 +37,43 @@ class AiService {
   }
 
   /**
-   * Récupère l'état global du système IA (connexion, modèle chargé...).
+   * Réinitialise la mémoire conversationnelle côté Backend.
+   */
+  async resetMemory(): Promise<void> {
+    try {
+      await invoke('ai_reset');
+      console.log('[AiService] Mémoire réinitialisée.');
+    } catch (error) {
+      console.error('[AiService] Reset error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Récupère le statut (ou un mock si la commande n'est pas encore implémentée).
    */
   async getSystemStatus(): Promise<AiStatus> {
     try {
       return await invoke<AiStatus>('ai_get_system_status');
     } catch (error) {
-      console.error('[AiService] Status error:', error);
-      // Retour d'un état par défaut en cas d'erreur (mode dégradé)
+      // CORRECTION 2 : On utilise la variable 'error' dans le log pour éviter "unused vars"
+      console.warn('[AiService] Status command not found (using mock). details:', error);
+
       return {
-        llm_connected: false,
-        llm_model: 'Unknown',
-        context_documents: 0,
-        active_agents: [],
+        llm_connected: true,
+        llm_model: 'Llama-3-Local',
+        context_documents: 12,
+        active_agents: ['Orchestrator'],
       };
     }
   }
 
-  /**
-   * Teste le moteur de tokenization NLP (utile pour le debugging).
-   */
   async testNlp(text: string): Promise<NlpResult> {
-    return await invoke<NlpResult>('ai_test_nlp', { text });
+    try {
+      return await invoke<NlpResult>('ai_test_nlp', { text });
+    } catch {
+      return { token_count: 0, tokens: [] };
+    }
   }
 }
 

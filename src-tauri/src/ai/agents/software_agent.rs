@@ -4,8 +4,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::intent_classifier::EngineeringIntent;
-use super::{Agent, AgentContext, AgentResult, CreatedArtifact}; // <--- Imports
+use super::{Agent, AgentContext, AgentResult, CreatedArtifact};
 use crate::ai::llm::client::LlmBackend;
+// IMPORT NLP
+use crate::ai::nlp::entity_extractor;
 
 #[derive(Default)]
 pub struct SoftwareAgent;
@@ -28,13 +30,24 @@ impl SoftwareAgent {
         name: &str,
         description: &str,
     ) -> Result<serde_json::Value> {
-        let system_prompt = "Tu es un Architecte Logiciel. Génère uniquement du JSON valide.";
+        // NLP
+        let entities = entity_extractor::extract_entities(name);
+        let mut nlp_hint = String::new();
+        if !entities.is_empty() {
+            nlp_hint.push_str("\n[VOCABULAIRE TECHNIQUE]:\n");
+            for entity in entities {
+                nlp_hint.push_str(&format!("- \"{}\"\n", entity.text));
+            }
+        }
+
+        let system_prompt = "Tu es un Architecte Logiciel. Génère JSON valide.";
         let user_prompt = format!(
-            "Crée un objet JSON pour un Composant Logique Arcadia (LA).
+            "Crée un Composant Logique Arcadia (LA).
             Nom: {}
             Intention: {}
-            Schéma: {{ \"name\": \"str\", \"is_abstract\": bool, \"implementation_language\": \"rust\" }}",
-            name, description
+            {}
+            Schéma: {{ \"name\": \"str\", \"is_abstract\": bool, \"implementation_language\": \"rust|cpp|python\", \"description\": \"str\" }}",
+            name, description, nlp_hint
         );
 
         let response = self.ask_llm(ctx, system_prompt, &user_prompt).await?;
@@ -68,7 +81,6 @@ impl Agent for SoftwareAgent {
         ctx: &AgentContext,
         intent: &EngineeringIntent,
     ) -> Result<Option<AgentResult>> {
-        // <--- Signature
         match intent {
             EngineeringIntent::CreateElement {
                 layer: _,
@@ -99,7 +111,6 @@ impl Agent for SoftwareAgent {
                     }],
                 }))
             }
-
             EngineeringIntent::GenerateCode {
                 language,
                 context,
@@ -111,10 +122,8 @@ impl Agent for SoftwareAgent {
                     .await?;
 
                 let clean_code = code.replace("```rust", "").replace("```", "");
-
                 let relative_path = format!("src-gen/{}", filename);
                 let path = ctx.paths.domain_root.join(&relative_path);
-
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
@@ -131,7 +140,6 @@ impl Agent for SoftwareAgent {
                     }],
                 }))
             }
-
             _ => Ok(None),
         }
     }

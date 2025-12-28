@@ -2,14 +2,13 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-// ✅ AJOUT DE CLONE ICI
 #[derive(Clone, Debug)]
 pub enum LlmBackend {
-    LocalLlama,
-    GoogleGemini,
+    LocalLlama,   // Format OpenAI (Ollama)
+    GoogleGemini, // Cloud Google
+    LlamaCpp,     // Format natif llama-server (Votre Docker 8081)
 }
 
-// ✅ AJOUT DE CLONE ICI (Indispensable pour vos Agents)
 #[derive(Clone)]
 pub struct LlmClient {
     local_url: String,
@@ -21,22 +20,46 @@ pub struct LlmClient {
 impl LlmClient {
     pub fn new(local_url: &str, gemini_key: &str, model_name: Option<String>) -> Self {
         let raw_model = model_name.unwrap_or_else(|| "gemini-1.5-flash-latest".to_string());
-        // Nettoyage préventif
         let clean_model = raw_model.replace("models/", "");
 
+        // 1. SANITISATION URL (Localhost -> 127.0.0.1)
+        // Force l'IPv4 pour éviter les conflits Docker/Rust sur localhost
+        let sanitized_url = local_url
+            .trim_end_matches('/')
+            .replace("localhost", "127.0.0.1");
+
         LlmClient {
-            local_url: local_url.to_string(),
+            local_url: sanitized_url,
             gemini_key: gemini_key.to_string(),
             model_name: clean_model,
-            http_client: Client::new(),
+            // 2. TIMEOUT AUGMENTÉ (60s -> 180s)
+            // Essentiel pour les tests en parallèle ou les machines chargées
+            http_client: Client::builder()
+                .timeout(Duration::from_secs(180))
+                .build()
+                .unwrap_or_default(),
         }
     }
 
     pub async fn ping_local(&self) -> bool {
-        let url = format!("{}/models", self.local_url);
+        let url_health = format!("{}/health", self.local_url);
+        // On teste d'abord /health (Standard Llama.cpp)
+        if self
+            .http_client
+            .get(&url_health)
+            .timeout(Duration::from_secs(1))
+            .send()
+            .await
+            .is_ok()
+        {
+            return true;
+        }
+
+        // Fallback sur /models (Standard OpenAI/Ollama)
+        let url_models = format!("{}/models", self.local_url);
         match self
             .http_client
-            .get(&url)
+            .get(&url_models)
             .timeout(Duration::from_secs(1))
             .send()
             .await
@@ -53,13 +76,12 @@ impl LlmClient {
         system_prompt: &str,
         user_prompt: &str,
     ) -> Result<String, String> {
-        let max_retries = 5;
+        let max_retries = 3;
         let mut attempt = 0;
 
         loop {
             attempt += 1;
 
-            // On passe 'backend' par référence ou clone selon besoin
             let result = self
                 .ask_internal(&backend, system_prompt, user_prompt)
                 .await;
@@ -67,26 +89,27 @@ impl LlmClient {
             match result {
                 Ok(response) => return Ok(response),
                 Err(err) => {
-                    // Si c'est une 404 (Erreur de nom), on ne réessaie pas, on plante direct pour vous avertir.
-                    if err.contains("404") || err.contains("NOT_FOUND") {
-                        return Err(format!("❌ ERREUR CONFIGURATION : {}", err));
-                    }
-
-                    // Si c'est le Quota (429), on attend.
-                    let is_quota = err.contains("429")
-                        || err.contains("RESOURCE_EXHAUSTED")
-                        || err.contains("quota");
-
-                    if !is_quota || attempt >= max_retries {
+                    // Erreurs fatales (Configuration) -> On arrête
+                    if err.contains("404")
+                        || err.contains("NOT_FOUND")
+                        || err.contains("Connection refused")
+                    {
                         return Err(err);
                     }
 
+                    // Erreurs temporaires (Quota, Timeout) -> On réessaie
+                    if attempt >= max_retries {
+                        return Err(err);
+                    }
+
+                    // Backoff exponentiel : 2s, 4s, 8s
                     let wait = Duration::from_secs(2u64.pow(attempt));
                     println!(
-                        "⚠️ Quota API atteint (Tentative {}/{}). Pause de {}s...",
+                        "⚠️ Retry ({}/{}). Pause {}s... (Erreur: {})",
                         attempt,
                         max_retries,
-                        wait.as_secs()
+                        wait.as_secs(),
+                        err
                     );
                     tokio::time::sleep(wait).await;
                 }
@@ -97,23 +120,67 @@ impl LlmClient {
     async fn ask_internal(
         &self,
         backend: &LlmBackend,
-        system_prompt: &str,
-        user_prompt: &str,
+        sys: &str,
+        user: &str,
     ) -> Result<String, String> {
         match backend {
             LlmBackend::LocalLlama => {
                 if self.ping_local().await {
-                    return self
-                        .call_openai_format(&self.local_url, system_prompt, user_prompt)
-                        .await;
+                    return self.call_openai_format(&self.local_url, sys, user).await;
                 }
                 println!("⚠️ Local LLM indisponible, bascule sur Gemini...");
-                self.call_google_gemini(system_prompt, user_prompt).await
+                self.call_google_gemini(sys, user).await
             }
-            LlmBackend::GoogleGemini => self.call_google_gemini(system_prompt, user_prompt).await,
+            LlmBackend::LlamaCpp => {
+                // Appel direct au backend natif Docker
+                self.call_llama_cpp(&self.local_url, sys, user).await
+            }
+            LlmBackend::GoogleGemini => self.call_google_gemini(sys, user).await,
         }
     }
 
+    // --- BACKEND: LLAMA.CPP (Docker Natif) ---
+    async fn call_llama_cpp(
+        &self,
+        base_url: &str,
+        sys: &str,
+        user: &str,
+    ) -> Result<String, String> {
+        let url = format!("{}/completion", base_url);
+
+        // Prompt brut : On injecte le System et le User
+        let full_prompt = format!("{}\n\n### User:\n{}\n\n### Assistant:\n", sys, user);
+
+        let body = json!({
+            "prompt": full_prompt,
+            "n_predict": 1024,
+            "temperature": 0.7,
+            // 3. STOP TOKENS ROBUSTES
+            // On s'assure que le modèle s'arrête s'il tente d'halluciner une suite de conversation
+            "stop": ["### User:", "User:", "\nUser:", "### Assistant:"]
+        });
+
+        let res = self
+            .http_client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !res.status().is_success() {
+            return Err(format!("Erreur HTTP LlamaCpp: {}", res.status()));
+        }
+
+        let json: Value = res.json().await.map_err(|e| e.to_string())?;
+
+        json["content"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "Réponse LlamaCpp malformée (champ 'content' manquant)".to_string())
+    }
+
+    // --- BACKEND: OPENAI FORMAT (Ollama) ---
     async fn call_openai_format(
         &self,
         base_url: &str,
@@ -147,8 +214,8 @@ impl LlmClient {
             .ok_or_else(|| "Réponse locale malformée".to_string())
     }
 
+    // --- BACKEND: GOOGLE GEMINI ---
     async fn call_google_gemini(&self, sys: &str, user: &str) -> Result<String, String> {
-        // Construction URL propre
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
             self.model_name, self.gemini_key
@@ -169,7 +236,6 @@ impl LlmClient {
         let text_response = res.text().await.unwrap_or_default();
 
         if !status.is_success() {
-            // On renvoie l'erreur brute pour l'analyse (404, 429...)
             return Err(format!("Erreur Gemini Cloud: {}", text_response));
         }
 

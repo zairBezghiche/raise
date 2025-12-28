@@ -1,116 +1,129 @@
-# Module AI — Intelligence Artificielle Neuro-Symbolique
+# Module Context — Mémoire & Ancrage (RAG Hybride)
 
-Ce module implémente l'approche **MBAIE** (Model-Based AI Engineering) de GenAptitude. Il transforme le langage naturel en structures d'ingénierie formelles, valides et persistées.
-
-## 🎯 Vision & Philosophie
-
-L'IA de GenAptitude n'est pas un simple chatbot. C'est un **opérateur qualifié** qui agit sur le modèle.
-
-1.  **Workstation-First** : Par défaut, l'intelligence tourne localement (Mistral via Docker).
-2.  **Dual Mode** : Capacité à déborder sur le Cloud (Gemini Pro) pour les tâches complexes nécessitant un raisonnement supérieur.
-3.  **Grounding (Ancrage)** : L'IA ne répond jamais "dans le vide". Elle est nourrie par le contexte réel du projet (`json_db`) via un système RAG.
-4.  **Intégrité** : Les actions de l'IA passent par les mêmes validateurs (`x_compute`, Schema Validator) que les actions humaines.
+Ce module est le garant de la **Vérité Terrain** (Grounding) de l'IA. Il est responsable de fournir au LLM le contexte nécessaire pour répondre aux questions de l'ingénieur, en combinant connaissances techniques, état du modèle et historique de la conversation.
 
 ---
 
-## 🏗️ Architecture Modulaire
+## 🏗️ Architecture Globale (The 4-Pillars)
 
-Le module est divisé en trois sous-systèmes interconnectés. Chaque sous-système possède sa propre documentation détaillée.
+Le contexte de GenAptitude repose sur 4 piliers distincts pour couvrir tous les horizons temporels :
 
-### 1\. [Le Cerveau Exécutif (`agents/`)](https://www.google.com/search?q=./agents/README.md)
-
-Responsable de la compréhension et de l'action.
-
-- **Intent Classifier** : Analyse la demande (ex: "Crée un acteur") et produit une structure Rust stricte.
-- **Agents Spécialisés** :
-  - `SystemAgent` : Crée/Modifie les éléments OA/SA (Acteurs, Fonctions).
-  - _(Futur)_ `SoftwareAgent`, `HardwareAgent`.
-- **Capacités** : Enrichissement automatique des données (description générée) et insertion en base.
-
-### 2\. [La Mémoire Contextuelle (`context/`)](https://www.google.com/search?q=./context/README.md)
-
-Responsable de l'ancrage des réponses dans la réalité du projet.
-
-- **RAG Naïf (In-Memory)** : Le `SimpleRetriever` scanne le modèle chargé en RAM pour trouver les éléments pertinents liés à la question.
-- **Injection** : Fournit au LLM un résumé textuel de l'existant ("Voici les acteurs actuels : ...").
-
-### 3\. [L'Infrastructure d'Inférence (`llm/`)](https://www.google.com/search?q=./llm/README.md)
-
-Responsable de la communication brute avec les modèles.
-
-- **Client Dual Mode** : Interface unifiée `ask()` qui route vers :
-  - **Local** : `http://localhost:8080` (Docker/Mistral).
-  - **Cloud** : Google Vertex AI (Gemini Pro).
-- **Robustesse** : Gestion des timeouts, ping de santé, parsing JSON résilient.
+| Composant       | Fichier                   | Type de Mémoire           | Objectif                                                | Exemple                           |
+| --------------- | ------------------------- | ------------------------- | ------------------------------------------------------- | --------------------------------- |
+| **Symbolique**  | `retriever.rs`            | **Immédiate** (RAM)       | Scanner le modèle structuré actuel (`ProjectModel`).    | _"Liste les acteurs définis."_    |
+| **Sémantique**  | `rag.rs`                  | **Long-Terme** (Vector)   | Chercher dans la documentation/notes (Qdrant).          | _"C'est quoi la norme ISO-123 ?"_ |
+| **Session**     | `conversation_manager.rs` | **Court-Terme** (Working) | Gérer le fil de discussion et le contexte glissant.     | _"Modifie-le."_ (Qui est "le" ?)  |
+| **Persistance** | `memory_store.rs`         | **Stockage** (File/KV)    | Sauvegarder/Charger les historiques de chat sur disque. | _Reprendre une discussion hier._  |
 
 ---
 
-## 🔄 Flux de Données (Orchestration)
+## 🔄 Flux de Données (Data Flow)
 
-L'orchestration est gérée par la commande `ai_chat` (dans `commands/ai_commands.rs`) ou par le CLI (`tools/ai_cli`).
+Ce diagramme illustre comment la **Mémoire de Travail** (Conversation) interagit avec la **Mémoire de Recherche** (Retrievers) pour former le contexte final.
 
-```mermaid
-graph TD
-    User[Utilisateur] -->|Input| Orch[Orchestrateur (Command/CLI)]
+```text
+                               QUESTION UTILISATEUR
+                                       |
+                                       v
+                           [ CONVERSATION MANAGER ]
+                                       |
+                   +-------------------+-------------------+
+                   | (Gestion de l'historique & Sliding Window)
+                   v
+           [ MEMORY STORE ] (Load/Save History JSON)
+                   |
+                   v
+        "Question Contextualisée" (ex: "Modifie-le" -> "Modifie le Moteur")
+                   |
+                   v
+             [ ORCHESTRATOR ] ------------------------+
+                   |                                  |
+         (Voie Déterministe)                  (Voie Probabiliste)
+                   |                                  |
+         [ SimpleRetriever ]                  [ RagRetriever ]
+                   |                                  |
+      1. Scan Mots-clés (RAM)               1. Vectorisation (FastEmbed)
+      2. Filtre Structuré                   2. Recherche Qdrant (Docker)
+                   |                                  |
+                   v                                  v
+        [ Éléments du Modèle ]               [ Chunks de Documentation ]
+                   |                                  |
+                   +----------------+-----------------+
+                                    |
+                                    v
+                           [ CONTEXT BUILDER ]
+                    (Fusion : Historique + Modèle + Docs)
+                                    |
+                                    v
+                             [ LLM CLIENT ]
 
-    subgraph "Phase 1 : Compréhension"
-        Orch -->|Classify| AG[Agents / Intent]
-        AG -->|JSON Mode| LLM[LLM]
-        LLM -->|Intent| AG
-    end
-
-    subgraph "Phase 2 : Contexte (Si Chat)"
-        Orch -->|Load Model| DB[(JSON-DB)]
-        DB --> CTX[Context / Retriever]
-        CTX -->|Snippet| LLM
-    end
-
-    subgraph "Phase 3 : Action (Si Création)"
-        Orch -->|Process| AG
-        AG -->|Generate Desc| LLM
-        AG -->|Insert| DB
-    end
-
-    AG -->|Résultat| Orch
-    Orch -->|Réponse| User
 ```
 
 ---
 
-## 🛠️ Points d'Entrée
+## 📂 Organisation du Code
 
-### 1\. Application GUI (Tauri)
+```text
+src-tauri/src/ai/context/
+├── mod.rs                   # Point d'entrée
+├── retriever.rs             # Moteur Symbolique (Scan du Modèle structuré)
+├── rag.rs                   # Moteur Sémantique (Client Qdrant + Embeddings)
+├── conversation_manager.rs  # Gestionnaire de session (Historique, Token limit)
+├── memory_store.rs          # Persistance locale des conversations
+└── tests/                   # Tests unitaires et d'intégration
 
-L'utilisateur final interagit via le panneau de chat React.
-
-- **Commande** : `ai_chat` (Async).
-- **Retour** : Flux textuel ou confirmation d'action.
-
-### 2\. Outil Développeur (`ai_cli`)
-
-Pour le test rapide, l'automatisation et le débogage sans interface graphique.
-
-- **Localisation** : `src-tauri/tools/ai_cli`.
-- **Commandes** :
-  - `chat` : Discussion libre avec contexte.
-  - `classify -x` : Test de la chaîne d'exécution complète (Création DB).
+```
 
 ---
 
-## 📊 État d'Avancement (v0.1.0)
+## 🧠 1. Le Moteur Symbolique (`retriever.rs`)
 
-| Composant          | Statut     | Description                                         |
-| :----------------- | :--------- | :-------------------------------------------------- |
-| **LLM Client**     | ✅ Stable  | Support Local/Cloud, Gestion d'erreurs.             |
-| **Classification** | ✅ Stable  | Détection précise (Create vs Chat), Nettoyage JSON. |
-| **RAG**            | ⚠️ Basique | Recherche par mots-clés sur modèle en mémoire.      |
-| **System Agent**   | ✅ Actif   | Création d'éléments OA/SA, Descriptions auto.       |
-| **Software Agent** | ❌ Prévu   | Génération de code et composants logiques.          |
-| **Vector DB**      | ❌ Prévu   | Remplacement du RAG naïf par Qdrant/LEANN.          |
+_Approche "Exacte"_.
+Parcourt les structures Rust en mémoire (`ProjectModel`) pour trouver des correspondances exactes de noms ou de descriptions. Indispensable pour que l'IA manipule les bons objets du diagramme.
+
+## 🔮 2. Le Moteur Sémantique (`rag.rs`)
+
+_Approche "Conceptuelle"_.
+Utilise **Qdrant** et **FastEmbed** pour retrouver des informations dans des textes non structurés (spécifications, wiki projet) en se basant sur le sens (vecteurs) plutôt que sur les mots exacts.
+
+## 🗣️ 3. Le Gestionnaire de Session (`conversation_manager.rs`)
+
+_Mémoire de Travail_.
+L'IA n'a pas de mémoire native d'une requête à l'autre. Ce module :
+
+- Stocke les échanges `User` <-> `Assistant`.
+- Applique une fenêtre glissante (ex: garde les 10 derniers échanges) pour ne pas saturer le contexte du LLM.
+- Résout les références anaphoriques (transformer "il" ou "ça" en l'objet mentionné précédemment).
+
+## 💾 4. Le Stockage de Mémoire (`memory_store.rs`)
+
+_Persistance_.
+Assure que les conversations ne sont pas perdues au redémarrage de l'application. Il sérialise l'état du `ConversationManager` vers le système de fichiers (JSON ou Bincode).
 
 ---
 
-> **Note aux contributeurs :**
-> Pour modifier la logique d'un agent, voir `src/ai/agents`.
-> Pour changer de modèle LLM, modifier le `.env`.
-> Pour toucher à la base de données, passer par `json_db::collections::manager`.
+## 🚀 Commandes de Test
+
+### Tester le Retriever Symbolique
+
+```bash
+cargo test context::tests
+
+```
+
+### Tester le Pipeline RAG Complet
+
+```bash
+cargo test rag_integration_test
+
+```
+
+---
+
+## 🛠️ État d'avancement & Roadmap
+
+- [x] **Retriever Symbolique** : Fonctionnel (Recherche par mots-clés).
+- [x] **RAG Sémantique** : Fonctionnel (Connexion Qdrant + FastEmbed).
+- [ ] **Conversation Manager** : À implémenter (Structure de données `ChatHistory`).
+- [ ] **Memory Store** : À implémenter (Sauvegarde JSON locale dans `.genaptitude/chats/`).
+- [ ] **Orchestrateur Unifié** : Fusionner les 4 sources avant l'envoi au LLM.

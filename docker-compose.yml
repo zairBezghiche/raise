@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  # 🧠 QDRANT (Mémoire Vectorielle)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: genaptitude_qdrant
+    restart: unless-stopped
+    ports:
+      - "${PORT_QDRANT_HTTP:-6333}:6333" # HTTP
+      - "${PORT_QDRANT_GRPC:-6334}:6334" # gRPC
+    volumes:
+      # On stocke les données Qdrant dans ton dossier de domaine
+      - ${PATH_GENAPTITUDE_DOMAIN}/qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+  # 🤖 LLM LOCAL (Llama.cpp Server)
+  llm:
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    container_name: genaptitude_llm
+    restart: unless-stopped
+    ports:
+      # Mappe le port hôte défini dans .env vers le port 8080 du conteneur
+      - "${PORT_LLM:-8081}:8080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      # Montage des modèles en lecture seule (:ro)
+      - ${PATH_LLM_MODELS}:/models:ro
+    # La commande utilise la variable pour le nom du fichier
+    command: >
+      -m /models/${LLM_MODEL_FILE}
+      -c 8192
+      --host 0.0.0.0
+      --port 8080
+      --n-gpu-layers 99
+      --ctx-size 8192
+      --batch-size 512

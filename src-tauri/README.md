@@ -1,126 +1,177 @@
-# 🦀 GenAptitude - Backend Rust (Tauri Core)
+# GenAptitude · Usine de Cas d'Usage IA Orientée Poste de Travail
 
-Le cœur de GenAptitude est une application **Rust** haute performance utilisant le framework **Tauri v2**.
-Il agit comme un serveur local souverain gérant la logique métier lourde, le stockage des données, l'intelligence artificielle et l'orchestration des processus.
+<p align="center">
+<img src="src/assets/images/logo-white.svg" alt="GenAptitude Logo" width="200">
+</p>
 
-## 🏗 Architecture Modulaire
+**GenAptitude** est une **Use-Case Factory** (Usine à Cas d'Usage) souveraine pour l'ingénierie complexe.
 
-Le backend est structuré en modules découplés (Domain Driven Design) :
+Plus qu'un simple outil, c'est une plateforme unifiée qui permet de concevoir, déployer et exécuter des assistants IA spécialisés pour l'**Ingénierie Système, Logicielle, Matérielle et IA**. Elle a pour vocation d'être une **infrastructure de Bien Commun Numérique**, redonnant aux ingénieurs la maîtrise de leurs outils et de leur savoir-faire.
 
-```text
-src-tauri/src/
-├── ai/                 # 🤖 Cerveau Neuro-Symbolique (Agents, RAG, LLM Client)
-├── blockchain/         # 🔗 Infrastructure de Confiance (Fabric, Innernet VPN)
-├── code_generator/     # ⚡ Usine Logicielle Hybride (Templates Tera + Injection IA)
-├── commands/           # 🔌 Interface API (IPC Tauri) exposée au Frontend
-├── genetics/           # 🧬 Moteur d'Optimisation (Algorithmes Évolutionnaires)
-├── json_db/            # 🗄️ SGBD NoSQL/Sémantique (Stockage, Index, SQL, ACID)
-├── model_engine/       # 📚 Moteur Sémantique (Loader Arcadia/Capella)
-├── plugins/            # 🧠 Hôte WASM (Exécution de règles dynamiques)
-├── traceability/       # 🛡️ Gouvernance (Audit, Conformité DO-178C/AI Act)
-├── utils/              # 🛠️ Fondations (Config, Logs, Erreurs)
-├── workflow_engine/    # 🔀 Orchestrateur Symbolique (Graphes de tâches, HITL)
-├── lib.rs              # Point d'entrée Librairie
-└── main.rs             # Point d'entrée Exécutable
+Contrairement aux silos propriétaires, GenAptitude décloisonne les disciplines en combinant la créativité de l'IA Générative avec la rigueur des méthodes formelles, le tout dans un environnement **Local-First, Transparent et Sécurisé**.
+
+---
+
+## 🌐 Spectre d'Ingénierie (Multidisciplinaire)
+
+GenAptitude orchestre la collaboration entre quatre domaines critiques grâce à son architecture modulaire :
+
+### 1. Ingénierie Système (MBSE)
+
+_Le cœur méthodologique._
+
+- Pilotage par la méthode **Arcadia** (OA, SA, LA, PA) via le moteur `model_engine`.
+- Garantie de cohérence architecturale via sémantique **JSON-LD**.
+
+### 2. Ingénierie Logicielle
+
+_De la conception au code._
+
+- Génération de code polyglotte (Rust, C++, Python) via le module `code_generator`.
+- Validation de la qualité et conformité aux patterns de conception.
+
+### 3. Ingénierie Matérielle
+
+_Contraintes physiques et intégration._
+
+- Prise en compte des contraintes Hardware (Ressources, I/O) via des agents dédiés.
+- Modélisation des interfaces physiques définie dans les `domain-models`.
+
+### 4. Ingénierie IA (Neuro-Symbolique)
+
+_L'intelligence du système._
+
+- Optimisation des architectures via le moteur génétique `genetics`.
+- Orchestration d'agents autonomes et gestion des `plugins` cognitifs.
+
+---
+
+## 🏛️ Philosophie & Piliers Techniques
+
+GenAptitude repose sur quatre piliers qui garantissent l'indépendance technologique et la rigueur industrielle :
+
+### 1. Souveraineté (Local-First & JSON-DB)
+
+_Vos données vous appartiennent physiquement._
+L'architecture refuse le verrouillage technologique. Toutes les données sont gérées par un moteur NoSQL sur-mesure développé en Rust (`src-tauri/src/json_db`) :
+
+- **Stockage Local Standard** : Les données résident dans des fichiers JSON lisibles sur votre disque, validés par **JSON Schema**.
+- **Intégrité** : Support des transactions ACID via un **Write-Ahead Log (WAL)** (`_wal.jsonl`) qui garantit qu'aucune donnée n'est corrompue.
+- **Moteur `x_compute**` : Calcul automatique des métadonnées (UUID, timestamps) sans dépendance externe.
+
+### 2. Transparence & Rigueur (MBAIE Neuro-Symbolique)
+
+_Une IA ingénieur, pas une boîte noire._
+L'approche **MBAIE** (Model-Based AI Engineering) force l'IA à respecter des règles explicites :
+
+- **Validation Logique** : Un **Moteur de Règles** (`rules_engine`) vérifie la cohérence de chaque proposition de l'IA avant validation.
+- **Optimisation Hybride** : Le **Moteur Génétique** (`genetics`) combine l'IA générative (créativité) et l'IA symbolique (contraintes) pour explorer les solutions.
+
+### 3. Confiance (Preuve & Audit)
+
+_L'ingénierie critique exige des preuves irréfutables._
+
+- **Compliance & Reporting** : Un module dédié de **Traçabilité** (`traceability`) génère les preuves de conformité pour les standards critiques (DO-178C, ISO-26262).
+- **Blockchain Fabric** : Client gRPC intégré (`blockchain/fabric`) pour ancrer les décisions d'architecture sur Hyperledger Fabric, créant un registre immuable.
+
+### 4. Pérennité & Extensibilité
+
+_Une technologie durable et modulaire._
+
+- **Blocs Cognitifs** : Une architecture de **Plugins** (`plugins`) permet d'étendre les capacités de l'IA sans toucher au cœur du système.
+- **Performance Durable** : Noyau de calcul compilé en **WebAssembly** (`src-wasm`) pour une exécution haute performance sur poste standard.
+
+---
+
+## 🗣️ Stratégie Linguistique : Le Pari de la Précision
+
+GenAptitude adopte une position forte sur la **Souveraineté Cognitive** :
+
+- **Code & Infrastructure (Anglais)** : Pour garantir l'universalité technique et la contribution Open Source, le code source, les APIs et les commentaires bas-niveau respectent le standard international (Anglais).
+- **Sémantique & Règles Métier (Français)** : Nous privilégions le **Français** pour la définition des modèles formels, des exigences et des ontologies.
+- _Pourquoi ?_ Le français offre une **rigueur grammaticale et une précision sémantique** supérieures à l'anglais contextuel. Dans l'IA Neuro-Symbolique, cette précision réduit drastiquement les ambiguïtés et les risques d'hallucinations lors de la spécification de systèmes critiques. C'est le choix de la **haute définition conceptuelle**.
+
+---
+
+## 🛠️ Installation et Démarrage
+
+### Prérequis
+
+- **Node.js 20+** (Frontend)
+- **Rust 1.88+** (Backend et WASM)
+- **Cibles WASM** : `rustup target add wasm32-unknown-unknown wasm32-wasip1`
+
+### Commandes Rapides
+
+1. **Compiler le module WASM** (Requis pour l'UI) :
+
+```bash
+cd src-wasm && ./build.sh && cd ..
+
+```
+
+2. **Lancer l'environnement de développement** :
+
+```bash
+npm install
+cargo tauri dev
+
 ```
 
 ---
 
-## 🧩 Détail des Modules
+## 🔧 Outils en Ligne de Commande (CLI)
 
-### 1\. 🗄️ JSON-DB (Persistance)
+GenAptitude fournit une suite d'outils pour administrer le système et valider les modèles sans interface graphique :
 
-Un moteur de base de données transactionnel conçu pour l'ingénierie système.
+### 1. Administration BDD (`jsondb_cli`)
 
-- **Sémantique** : Validation native **JSON-LD** et conformité aux schémas Arcadia.
-- **ACID** : Transactions atomiques avec journalisation (WAL).
-- **SQL** : Moteur de requête supportant les projections et filtres complexes.
+```bash
+# Lister les collections
+cargo run -p jsondb_cli -- list-collections --space un2 --db _system
 
-### 2\. 🤖 AI Kernel (Intelligence)
+```
 
-Le cerveau "neuronal" du système.
+### 2. Débogage IA (`ai_cli`)
 
-- **Dual Mode** : Route les requêtes vers le Local (Docker/Mistral) ou le Cloud (Gemini) selon la complexité.
-- **Agents** : `SystemAgent` pour la modélisation, `SoftwareAgent` pour le code.
-- **RAG** : Récupération de contexte vectoriel pour ancrer les réponses.
+```bash
+# Tester la classification d'intention
+cargo run -p ai_cli -- classify "Crée une fonction de régulation thermique"
 
-### 3\. 🔀 Workflow Engine (Orchestration)
+```
 
-Le cerveau "symbolique" du système.
+### 3. Validateur de Schéma (`validator_cli`)
 
-- **Déterministe** : Exécute des graphes de tâches définis statiquement.
-- **HITL (Human-in-the-loop)** : Gestion native des pauses pour validation humaine.
-- **State Machine** : Suivi rigoureux de l'état d'avancement.
+```bash
+# Valider un fichier de données contre son schéma
+cargo run -p validator_cli -- --data ./data/comp.json --schema arcadia/pa/phys-comp.json
 
-### 4\. 🛡️ Traceability (Assurance)
-
-Garantit que le modèle est conforme aux normes critiques.
-
-- **Impact Analysis** : Calcule la propagation d'un changement dans le graphe.
-- **Compliance** : Checkers automatiques pour **DO-178C**, **ISO-26262** et **EU AI Act**.
-
-### 5\. 📚 Model Engine
-
-Chargeur haute performance pour les modèles Arcadia.
-
-- Hydrate les données JSON brutes en structures Rust fortement typées (`ProjectModel`).
-- Gère les 5 couches d'abstraction : OA, SA, LA, PA, EPBS.
+```
 
 ---
 
-## 🛠 Administration & Outils (CLI)
+## 🏗️ Structure du Projet
 
-Le projet inclut plusieurs binaires CLI pour l'administration et le débogage sans l'UI.
+- **`src-tauri/`** : Backend Rust. Cœur de l'application.
+- `ai/` : Orchestrateur Neuro-Symbolique.
+- `blockchain/` : Clients de preuve et sécurité (Fabric, Innernet).
+- `code_generator/` : Moteurs de génération de code (Rust, C++, Python).
+- `genetics/` : Moteur d'optimisation hybride (Symbolique/Générative).
+- `json_db/` : Moteur de base de données souverain.
+- `model_engine/` : Logique métier formelle Arcadia/Capella.
+- `plugins/` : Blocs cognitifs et extensions modulaires.
+- `rules_engine/` : Moteur de validation des règles métier.
+- `tools/` : Outils CLI (`ai_cli`, `jsondb_cli`, `validator_cli`).
+- `traceability/` : Moteur de conformité et reporting.
 
-| Outil            | Commande                     | Usage                                                     |
-| :--------------- | :--------------------------- | :-------------------------------------------------------- |
-| **JsonDB Admin** | `cargo run -p jsondb_cli`    | Création de bases, requêtes SQL, réparation d'index.      |
-| **AI Debugger**  | `cargo run -p ai_cli`        | Test du chat, classification d'intention, ping LLM.       |
-| **Validator**    | `cargo run -p validator_cli` | Vérification stricte d'un fichier JSON contre son schéma. |
+- **`src-wasm/`** : Modules de calcul haute performance compilés en WASM.
+- **`src/`** : Frontend React/TypeScript.
+- **`schemas/`** : Ontologies et définitions JSON-LD.
+- **`domain-models/`** : Référentiels de connaissances métier.
 
-### Exemples
+---
 
-```bash
-# Requête SQL sur la base locale
-cargo run -p jsondb_cli -- --space un2 --db _system sql \
-  --query "SELECT name, kind FROM actors WHERE kind = 'human'"
+## Contact
 
-# Test de compréhension IA
-cargo run -p ai_cli -- classify "Crée une fonction Démarrer"
-```
-
-## ✅ Tests et Qualité
-
-La qualité est assurée par une batterie de tests unitaires et d'intégration.
-
-```bash
-# 1. Tester les fondations (Utils)
-cargo test utils::
-
-# 2. Tester la base de données (Intégration)
-cargo test --test json_db_suite
-
-# 3. Tester le moteur de workflow
-cargo test workflow_engine::
-
-# 4. Tester tout le projet (Attention : peut être long)
-cargo test
-```
-
-### Vérification du code
-
-```bash
-# Compilation rapide
-cargo check
-
-# Linter strict
-cargo clippy -- -D warnings
-```
-
-```
-
-```
-
-```
-
-```
+**GenAptitude — Usine de Cas d'Usage IA Orientée Poste de Travail**
+Contact : **zair@bezghiche.com**

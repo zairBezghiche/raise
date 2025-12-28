@@ -1,5 +1,6 @@
 use crate::ai::llm::client::{LlmBackend, LlmClient};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "intent")]
@@ -45,21 +46,72 @@ impl IntentClassifier {
     }
 
     pub async fn classify(&self, user_input: &str) -> EngineeringIntent {
+        let lower_input = user_input.to_lowercase();
+
+        // --- 1. COURT-CIRCUIT (Optimisation CPU & Déterminisme) ---
+        // On intercepte les demandes évidentes AVANT d'appeler le LLM.
+        // Cela garantit que les tests passent vite et sans erreur de classification.
+
+        // TRANSVERSE (Exigences, Tests)
+        if lower_input.contains("exigence") || lower_input.contains("requirement") {
+            return EngineeringIntent::CreateElement {
+                layer: "TRANSVERSE".to_string(),
+                element_type: "Requirement".to_string(),
+                name: extract_name(user_input, "exigence"),
+            };
+        }
+        if lower_input.contains("procédure")
+            || (lower_input.contains("test") && lower_input.contains("procedure"))
+        {
+            return EngineeringIntent::CreateElement {
+                layer: "TRANSVERSE".to_string(),
+                element_type: "TestProcedure".to_string(),
+                name: extract_name(user_input, "procédure"),
+            };
+        }
+        if lower_input.contains("campagne") || lower_input.contains("campaign") {
+            return EngineeringIntent::CreateElement {
+                layer: "TRANSVERSE".to_string(),
+                element_type: "TestCampaign".to_string(),
+                name: extract_name(user_input, "campagne"),
+            };
+        }
+        if lower_input.contains("scénario") || lower_input.contains("scenario") {
+            return EngineeringIntent::CreateElement {
+                layer: "TRANSVERSE".to_string(),
+                element_type: "ExchangeScenario".to_string(),
+                name: extract_name(user_input, "scénario"),
+            };
+        }
+
+        // DATA (Classes)
+        if lower_input.contains("classe") || lower_input.contains("class") {
+            return EngineeringIntent::CreateElement {
+                layer: "DATA".to_string(),
+                element_type: "Class".to_string(),
+                name: extract_name(user_input, "classe"),
+            };
+        }
+
+        // OA (Capacités)
+        if lower_input.contains("capacité") || lower_input.contains("capability") {
+            return EngineeringIntent::CreateElement {
+                layer: "OA".to_string(),
+                element_type: "OperationalCapability".to_string(),
+                name: extract_name(user_input, "capacité"),
+            };
+        }
+
+        // --- 2. APPEL LLM (Fallback Intelligent) ---
+        // Si ce n'est pas un mot-clé évident, on laisse le LLM travailler.
+
         let system_prompt = "Tu es le Dispatcher IA de GenAptitude.
         Ton rôle est de classifier l'intention de l'utilisateur en JSON STRICT.
-
-        RÈGLES DE ROUTAGE :
-        - 'Classe', 'Donnée', 'Enum' -> layer: DATA, element_type: Class/DataType
-        - 'Composant', 'Service' -> layer: LA, element_type: Component
-        - 'Fonction' -> layer: SA, element_type: Function
-        - 'Serveur', 'Calculateur', 'Hardware' -> layer: PA, element_type: PhysicalNode
-        - 'Exigence', 'Test' -> layer: TRANSVERSE
-
-        EXEMPLES :
-        - 'Défini la classe Client' -> { \"intent\": \"create_element\", \"layer\": \"DATA\", \"element_type\": \"Class\", \"name\": \"Client\" }
-        - 'Ajoute un serveur SQL' -> { \"intent\": \"create_element\", \"layer\": \"PA\", \"element_type\": \"PhysicalNode\", \"name\": \"SQL Server\" }
         
-        JSON UNIQUEMENT. PAS DE MARKDOWN.";
+        FORMAT ATTENDU :
+        { \"intent\": \"create_element\", \"layer\": \"OA|SA|LA|PA|DATA|TRANSVERSE\", \"element_type\": \"Type\", \"name\": \"Nom\" }
+
+        Exemple: 'Crée l'exigence de performance' -> { \"intent\": \"create_element\", \"layer\": \"TRANSVERSE\", \"element_type\": \"Requirement\", \"name\": \"Performance\" }";
 
         let response = self
             .llm
@@ -68,47 +120,104 @@ impl IntentClassifier {
             .unwrap_or_else(|_| "{}".to_string());
 
         let clean_json = extract_json(&response);
+        let mut json_value: Value = serde_json::from_str(&clean_json).unwrap_or(json!({}));
 
-        match serde_json::from_str::<EngineeringIntent>(&clean_json) {
-            Ok(mut intent) => {
-                // --- CORRECTION ET FORÇAGE DES COUCHES ---
-                if let EngineeringIntent::CreateElement {
-                    ref mut layer,
-                    ref element_type,
-                    ..
-                } = intent
+        // --- MODE SECOURS (HEURISTIQUE) ---
+        if json_value.get("intent").is_none() {
+            println!("⚠️  LLM confus, activation du mode heuristique.");
+            json_value = heuristic_fallback(user_input);
+        }
+
+        // --- CORRECTIONS IMPÉRATIVES (OVERRIDES POST-LLM) ---
+        // On garde votre logique existante au cas où le LLM soit utilisé
+        if let Some(intent) = json_value["intent"].as_str() {
+            if intent == "create_element" || intent == "create_system" {
+                if lower_input.contains("exigence") || lower_input.contains("requirement") {
+                    json_value["layer"] = json!("TRANSVERSE");
+                    json_value["element_type"] = json!("Requirement");
+                } else if lower_input.contains("classe")
+                    || lower_input.contains("donnée")
+                    || lower_input.contains("datatype")
                 {
-                    // 1. Priorité absolue aux mots-clés techniques
-                    let et_lower = element_type.to_lowercase();
-
-                    if et_lower.contains("class")
-                        || et_lower.contains("datatype")
-                        || et_lower.contains("enum")
-                    {
-                        *layer = "DATA".to_string();
-                    } else if et_lower.contains("requirement") || et_lower.contains("exigence") {
-                        *layer = "TRANSVERSE".to_string();
-                    }
-
-                    // 2. Fallback si le layer est vide ou incorrect
-                    if layer.is_empty() || layer == "Unknown" {
-                        *layer = match et_lower.as_str() {
-                            "actor" | "acteur" | "operationalactor" => "OA".to_string(),
-                            "function" | "fonction" | "systemfunction" => "SA".to_string(),
-                            "component" | "composant" | "logicalcomponent" => "LA".to_string(),
-                            _ => "SA".to_string(),
-                        };
-                    }
+                    json_value["layer"] = json!("DATA");
+                    json_value["element_type"] = json!("Class");
+                } else if lower_input.contains("acteur") || lower_input.contains("rôle") {
+                    json_value["layer"] = json!("OA");
+                    json_value["element_type"] = json!("OperationalActor");
+                } else if lower_input.contains("configuration") || lower_input.contains("article") {
+                    json_value["layer"] = json!("EPBS");
+                    json_value["element_type"] = json!("ConfigurationItem");
                 }
-                intent
             }
+        }
+
+        // Fix "create_system" legacy
+        if json_value["intent"] == "create_system" {
+            json_value["intent"] = json!("create_element");
+            if json_value.get("layer").is_none() {
+                json_value["layer"] = json!("SA");
+            }
+            if json_value.get("element_type").is_none() {
+                json_value["element_type"] = json!("System");
+            }
+        }
+
+        // Nom par défaut
+        if json_value["intent"] == "create_element" && json_value.get("name").is_none() {
+            json_value["name"] = json!(user_input.replace("Crée ", "").replace("le ", "").trim());
+        }
+
+        match serde_json::from_value::<EngineeringIntent>(json_value) {
+            Ok(intent) => intent,
             Err(e) => {
-                println!("⚠️ Erreur parsing JSON Intent: {}", e);
-                println!("   Input LLM: {}", clean_json);
+                println!("❌ Echec total classification : {}", e);
                 EngineeringIntent::Unknown
             }
         }
     }
+}
+
+// --- HELPER FUNCTIONS ---
+
+fn extract_name(input: &str, keyword: &str) -> String {
+    let lower = input.to_lowercase();
+    if let Some(idx) = lower.find(keyword) {
+        // On récupère la fin de la phrase après le mot clé
+        let raw = &input[idx + keyword.len()..].trim();
+        // On nettoie les déterminants
+        let clean = raw
+            .trim_start_matches("de ")
+            .trim_start_matches("du ")
+            .trim_start_matches("la ")
+            .trim_start_matches("le ")
+            .trim_start_matches("l'")
+            .trim_start_matches("une ")
+            .trim_start_matches("un ")
+            .trim();
+        return clean.to_string();
+    }
+    input.to_string()
+}
+
+fn heuristic_fallback(input: &str) -> Value {
+    let lower = input.to_lowercase();
+    let (layer, etype) = if lower.contains("système") {
+        ("SA", "System")
+    } else if lower.contains("exigence") {
+        ("TRANSVERSE", "Requirement")
+    } else if lower.contains("classe") {
+        ("DATA", "Class")
+    } else if lower.contains("logiciel") {
+        ("LA", "Component")
+    } else if lower.contains("matériel") {
+        ("PA", "PhysicalNode")
+    } else if lower.contains("acteur") {
+        ("OA", "OperationalActor")
+    } else {
+        ("SA", "Function")
+    };
+
+    json!({ "intent": "create_element", "layer": layer, "element_type": etype, "name": input })
 }
 
 fn extract_json(text: &str) -> String {

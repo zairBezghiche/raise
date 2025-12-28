@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software for engineering or research, please cite it as below."
+title: "GenAptitude: Sovereign Neuro-Symbolic AI Engineering Platform"
+abstract: "A workstation-first AI Use-Case Factory combining Generative AI with formal Model-Based Systems Engineering (Arcadia) for critical industries."
+authors:
+  - family-names: "Bezghiche"
+    given-names: "Zair"
+    email: "zair@bezghiche.com"
+version: 0.1.0
+date-released: 2025-12-22
+license: Apache-2.0
+repository-code: "https://github.com/votre-user/genaptitude"
+keywords:
+  - "MBSE"
+  - "Arcadia"
+  - "Neuro-Symbolic AI"
+  - "Rust"
+  - "Tauri"
+  - "Digital Sovereignty"
+  - "Local-First"

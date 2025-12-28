@@ -1,92 +1,58 @@
-# GenAptitude · Usine de Cas d'Usage IA Orientée Poste de Travail
+# GenAptitude
+
+**Workstation-First AI Use-Case Factory for Critical Engineering.**
+_Une Usine de Cas d'Usage IA Souveraine pour l'Ingénierie Critique._
+
+---
+
+## 🇪🇺 European Union Sovereignty / Souveraineté Européenne
+
+GenAptitude is built to serve the industrial needs of the European Union, respecting local languages and data sovereignty.
+
+### Available Documentation / Documentation Disponible
+
+| Language                             | Description                                          | Status           |
+| :----------------------------------- | :--------------------------------------------------- | :--------------- |
+| [🇺🇸 **English**](docs/en/README.md)  | **Global Reference.** (Code & Architecture).         | ✅ Active        |
+| [🇫🇷 **Français**](docs/fr/README.md) | **Documentation Principale.** (Métier & Sémantique). | ✅ Active        |
+| [🇩🇪 **Deutsch**](docs/de/README.md)  | Technische Dokumentation.                            | 🚧 _Coming Soon_ |
+| [🇪🇸 **Español**](docs/es/README.md)  | Documentación técnica.                               | 🚧 _Coming Soon_ |
+
+### Target Markets (EU-27)
+
+We aim to support engineering standards across all EU member states:
 
 <p align="center">
-  <img src="src/assets/images/logo-white.svg" alt="GenAptitude Logo" width="200">
+  <img src="https://flagcdn.com/24x18/at.png" alt="Austria" title="Austria">
+  <img src="https://flagcdn.com/24x18/be.png" alt="Belgium" title="Belgium">
+  <img src="https://flagcdn.com/24x18/de.png" alt="Germany" title="Germany">
+  <img src="https://flagcdn.com/24x18/lu.png" alt="Luxembourg" title="Luxembourg">
+  <img src="https://flagcdn.com/24x18/nl.png" alt="Netherlands" title="Netherlands">
+  <img src="https://flagcdn.com/24x18/it.png" alt="Italy" title="Italy">
+  <img src="https://flagcdn.com/24x18/es.png" alt="Spain" title="Spain">
+  <img src="https://flagcdn.com/24x18/pt.png" alt="Portugal" title="Portugal">
+  <img src="https://flagcdn.com/24x18/gr.png" alt="Greece" title="Greece">
+  <img src="https://flagcdn.com/24x18/cy.png" alt="Cyprus" title="Cyprus">
+  <img src="https://flagcdn.com/24x18/mt.png" alt="Malta" title="Malta">
+  <img src="https://flagcdn.com/24x18/dk.png" alt="Denmark" title="Denmark">
+  <img src="https://flagcdn.com/24x18/fi.png" alt="Finland" title="Finland">
+  <img src="https://flagcdn.com/24x18/se.png" alt="Sweden" title="Sweden">
+  <img src="https://flagcdn.com/24x18/ie.png" alt="Ireland" title="Ireland">
+  <img src="https://flagcdn.com/24x18/bg.png" alt="Bulgaria" title="Bulgaria">
+  <img src="https://flagcdn.com/24x18/hr.png" alt="Croatia" title="Croatia">
+  <img src="https://flagcdn.com/24x18/cz.png" alt="Czech Republic" title="Czech Republic">
+  <img src="https://flagcdn.com/24x18/ee.png" alt="Estonia" title="Estonia">
+  <img src="https://flagcdn.com/24x18/hu.png" alt="Hungary" title="Hungary">
+  <img src="https://flagcdn.com/24x18/lv.png" alt="Latvia" title="Latvia">
+  <img src="https://flagcdn.com/24x18/lt.png" alt="Lithuania" title="Lithuania">
+  <img src="https://flagcdn.com/24x18/pl.png" alt="Poland" title="Poland">
+  <img src="https://flagcdn.com/24x18/ro.png" alt="Romania" title="Romania">
+  <img src="https://flagcdn.com/24x18/sk.png" alt="Slovakia" title="Slovakia">
+  <img src="https://flagcdn.com/24x18/si.png" alt="Slovenia" title="Slovenia">
 </p>
 
-**GenAptitude** est une plateforme d'ingénierie système (MBSE) souveraine et locale. Elle permet de transformer des tâches d'ingénierie complexes en assistants **locaux, auditables et explicables** en combinant IA générative et modélisation formelle.
-
-Ce projet est un monorepo contenant une **application de bureau (Tauri v2 + Rust)**, une **interface réactive (React + Vite)**, un noyau de calcul en **WebAssembly**, et un moteur de **base de données JSON transactionnelle**.
-
 ---
 
-## 🚀 Fonctionnalités Techniques Clés
-
-### 🧠 MBAIE (Model-Based AI Neuro-Symbolic Engineering)
-
-GenAptitude implémente une approche hybride :
-
-- [cite_start]**Orchestration Multi-Agents** : Agents spécialisés (`Software`, `System`, `Hardware`) pilotés par des modèles formels Arcadia/Capella[cite: 12].
-- [cite_start]**Contexte Sémantique** : Support natif de **JSON-LD** (`json_db/jsonld`) pour lier les données aux ontologies métiers (OA, SA, LA, PA, EPBS)[cite: 5].
-- [cite_start]**Inférence Locale** : Architecture conçue pour fonctionner avec des LLMs locaux (via `llama.cpp`) et une mémoire vectorielle (RAG) sans dépendance cloud[cite: 52].
-
-### 📦 JSON-DB Transactionnelle
-
-Un moteur de base de données NoSQL sur-mesure développé en Rust (`src-tauri/src/json_db`) :
-
-- [cite_start]**Stockage Local** : Données stockées en fichiers JSON, validées par **JSON Schema** avant écriture[cite: 13].
-- [cite_start]**Transactions ACID** : Support complet des transactions multi-documents grâce à un **Write-Ahead Log (WAL)** (`_wal.jsonl`) garantissant l'atomicité[cite: 636, 638].
-- [cite_start]**Moteur `x_compute`** : Calcul automatique de champs (UUID, timestamps, agrégats) intégré au pipeline d'insertion[cite: 969].
-- **Indexation** : Index Hash, BTree et Textuels maintenus en mémoire pour des performances de lecture élevées.
-
-### 🛡️ Souveraineté & Réseau Mesh
-
-- [cite_start]**Blockchain Fabric** : Client gRPC intégré (`blockchain/fabric`) pour l'enregistrement immuable des décisions d'architecture sur Hyperledger Fabric.
-- [cite_start]**VPN Mesh (Innernet)** : Client WireGuard embarqué (`blockchain/vpn`) pour créer des réseaux privés sécurisés (Interface `genaptitude0`) entre postes ingénieurs.
-- **Traçabilité** : Audit trail complet pour la conformité aux standards critiques (DO-178C, ISO-26262)[cite: 16].
-
----
-
-## 🛠️ Installation et Démarrage
-
-### Prérequis
-
-- **Node.js 20+** (Gestion du frontend)
-- **Rust 1.88+** (Backend et WASM)
-- [cite_start]**Cibles WASM** : `rustup target add wasm32-unknown-unknown wasm32-wasip1`[cite: 34].
-
-### Commandes Rapides
-
-1.  **Compiler le module WASM** (Requis pour le fonctionnement de l'UI) :
-
-    ```bash
-    cd src-wasm && ./build.sh && cd ..
-    ```
-
-2.  **Lancer l'environnement de développement** :
-
-    ```bash
-    npm install
-    cargo tauri dev
-    ```
-
-    Ceci lancera simultanément le serveur Vite (Frontend) et le backend Tauri.
-
-3.  **Administration BDD (CLI)** :
-    Pour interagir avec la base de données sans l'interface graphique :
-    ```bash
-    cd src-tauri/tools/jsondb_cli
-    # Exemple : Lister tous les documents d'une collection
-    cargo run -- query find-many un2 _system query.json
-    ```
-
----
-
-## 🏗️ Structure du Projet
-
-- **`src-tauri/`** : Backend Rust. Cœur de l'application.
-  - `json_db/` : Moteur de base de données custom (Collections, Index, WAL).
-  - `blockchain/` : Clients Fabric (gRPC) et Innernet (WireGuard).
-  - `ai/` : Orchestrateur, Agents et NLP.
-  - `model_engine/` : Logique métier Arcadia/Capella.
-- [cite_start]**`src-wasm/`** : Code Rust compilé en WebAssembly pour les calculs lourds côté client (Algorithmes de graphes, Parsing XMI)[cite: 39].
-- **`src/`** : Frontend React/TypeScript (Composants, Stores Zustand, Services).
-- [cite_start]**`schemas/`** : Définitions JSON Schema & JSON-LD versionnées (v1) pour tous les objets métier[cite: 5].
-- **`domain-models/`** : Modèles de référence métier (Arcadia, HDL, Software Patterns)[cite: 1].
-
----
-
-## Contact
-
-**GenAptitude — Workstation-First AI Use-Case Factory**
-Contact : **zair@bezghiche.com**
+<p align="center">
+  <img src="src/assets/images/logo-white.svg" alt="GenAptitude Logo" width="150">
+</p>

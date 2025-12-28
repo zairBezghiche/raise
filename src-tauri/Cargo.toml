@@ -13,11 +13,12 @@ tauri-build = { version = "2", features = [] }
 # --- Cœur Tauri ---
 tauri = { version = "2", features = [] }
 tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
 
 # --- Sérialisation & Données ---
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-bincode = { version = "2.0.1", features = ["serde"] }
+bincode = { version = "2.0.0-rc.3", features = ["serde"] }
 
 # --- Validation & Traitement ---
 regex = "1.10"
@@ -33,6 +34,9 @@ dotenvy = "0.15"
 walkdir = "2"
 pathdiff = "0.2"
 url = "2.5"
+tempfile = "3.10"
+
+wasmtime = "40.0.0"# --- Plugins & Runtime WASM (Manquant dans la version précédente) ---
 
 # Requis pour l'embarquement des schémas (file_storage.rs)
 include_dir = "0.7"
@@ -41,43 +45,34 @@ dirs = "6.0.0"
 # --- Logs & Traçabilité ---
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-log = "0.2"
+tracing-appender = "0.2"
+log = "0.4"
 
-# --- Cryptographie & Temps ---
-sha2 = "0.10"
-hex = "0.4"
+# --- UUID & Temps ---
 uuid = { version = "1.0", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock", "serde"] }
 rand = "0.9.2"
 
-# --- MOTEUR IA & NLP (Les manquants) ---
-# Requis pour ai/llm/client.rs
+# --- MOTEUR IA & NLP  ---
 reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
-# Requis pour ai/nlp/splitting.rs
 text-splitter = "0.28.0"
-# Requis pour ai/nlp/tokenizers.rs
 tiktoken-rs = "0.9.1"
 
-# --- BASE DE DONNÉES & QUERY (Les manquants) ---
-# Requis pour json_db/query/sql.rs
+# --- STACK IA NATIVE (CANDLE) ---
+candle-core = "0.9.1"
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
+hf-hub = "0.4.3"
+tokenizers = "0.22.2"
+fastembed = "5.5.0"
+
+# --- BASE DE DONNÉES & QUERY ---
 sqlparser = { version = "0.60.0", features = ["serde"] }
+qdrant-client = "1.11"
 
 # --- GÉNÉRATION DE CODE ---
-# Requis pour code_generator/templates (Tera)
 tera = "1.19"
 
-# --- GÉNÉTIQUE & OPTIMISATION ---
-# Requis pour genetics/engine.rs (Parallélisme)
-rayon = "1.10"
-
-# --- MOTEUR DE PLUGINS (WASM) ---
-wasmtime = "39.0.1"
-
-tempfile = "3.10"
-tauri-plugin-dialog = "2"
-
-# ==========================================
-# DÉPENDANCES DE DÉVELOPPEMENT (Tests)
-# ==========================================
+# --- Dépendances de développement (Pour les tests) ---
 [dev-dependencies]
-tempfile = "3.10" # <--- AJOUTÉ (Requis par test_utils.rs)
+tempfile = "3.10" # Manquant pour transactions/tests.rs

@@ -5,9 +5,10 @@ import { InputBar } from './InputBar';
 import { SuggestionPanel } from './SuggestionPanel';
 import { ContextDisplay } from './ContextDisplay';
 import { IntentClassifier } from './IntentClassifier';
-import { CreatedArtifact } from '@/types/ai.types'; // Import nécessaire
+import { CreatedArtifact } from '@/types/ai.types';
 
 export function ChatInterface() {
+  // Le hook utilise maintenant le nouveau aiService compatible AgentResult
   const { messages, isThinking, error, sendMessage, clear } = useAIChat();
   const [input, setInput] = useState('');
 
@@ -18,19 +19,12 @@ export function ChatInterface() {
     void sendMessage(value);
   }
 
-  // --- NOUVEAU : Fonction intelligente de génération de code ---
+  // --- Fonction intelligente de génération de code (Inchangée) ---
   const handleGenerateCode = (language: string, artifact: CreatedArtifact) => {
-    // On construit un prompt contextuel puissant
     const prompt = `Agis en tant qu'expert Software. 
     Génère le code ${language.toUpperCase()} complet pour l'élément "${artifact.name}" (Type: ${
       artifact.element_type
-    }, Layer: ${artifact.layer}).
-    Inclus :
-    - Les imports nécessaires
-    - La documentation (commentaires)
-    - Une implémentation robuste correspondant à la définition JSON précédente.`;
-
-    // On envoie ce message comme si c'était l'utilisateur
+    }, Layer: ${artifact.layer}).`;
     void sendMessage(prompt);
   };
 
@@ -49,6 +43,7 @@ export function ChatInterface() {
         transition: 'var(--transition-base)',
       }}
     >
+      {/* HEADER */}
       <header
         style={{
           display: 'flex',
@@ -63,9 +58,15 @@ export function ChatInterface() {
           </h2>
           <ContextDisplay messagesCount={messages.length} />
         </div>
+
+        {/* BOUTON RESET : Vide l'UI ET la mémoire Backend */}
         <button
           type="button"
-          onClick={clear}
+          onClick={() => {
+            if (confirm("Réinitialiser la mémoire de l'IA ?")) {
+              clear();
+            }
+          }}
           style={{
             fontSize: 'var(--font-size-xs)',
             borderRadius: 'var(--radius-full)',
@@ -75,8 +76,9 @@ export function ChatInterface() {
             padding: '4px 10px',
             cursor: 'pointer',
           }}
+          title="Oublier la conversation et vider le contexte"
         >
-          Effacer
+          Effacer Mémoire
         </button>
       </header>
 
@@ -84,21 +86,28 @@ export function ChatInterface() {
 
       <SuggestionPanel
         suggestions={[
-          'Explique-moi la structure JSON-DB actuelle',
-          'Défini la classe Client avec nom et prénom',
-          'Ajoute une fonction "Calculer Prix" (SA)',
+          "Quelle est l'autonomie du drone ? (RAG)",
+          'Crée un LogicalComponent "FlightController"',
+          'Analyse la cohérence du modèle',
         ]}
-        onSelect={setInput}
+        onSelect={(val) => setInput(val)}
       />
 
+      {/* ZONE DE MESSAGES */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--spacing-2) 0' }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '20%' }}>
+            🤖{' '}
+            <i>
+              Je suis connecté au cerveau Rust.
+              <br />
+              Posez une question contextuelle ou demandez une création.
+            </i>
+          </div>
+        )}
+
         {messages.map((m) => (
-          <MessageBubble
-            key={m.id}
-            message={m}
-            // On passe notre nouvelle fonction ici !
-            onGenerateCode={handleGenerateCode}
-          />
+          <MessageBubble key={m.id} message={m} onGenerateCode={handleGenerateCode} />
         ))}
 
         {isThinking && (
@@ -108,9 +117,14 @@ export function ChatInterface() {
               color: 'var(--text-muted)',
               marginTop: 'var(--spacing-2)',
               fontStyle: 'italic',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
             }}
           >
-            L’assistant réfléchit…
+            <span>L’assistant réfléchit…</span>
+            {/* Petit loader CSS optionnel */}
+            <span style={{ animation: 'pulse 1s infinite' }}>🧠</span>
           </div>
         )}
 
@@ -120,9 +134,12 @@ export function ChatInterface() {
               fontSize: 'var(--font-size-xs)',
               color: 'var(--color-error)',
               marginTop: 'var(--spacing-2)',
+              padding: '8px',
+              backgroundColor: '#fee2e2',
+              borderRadius: '4px',
             }}
           >
-            Erreur : {error}
+            ⚠️ {error}
           </div>
         )}
       </div>

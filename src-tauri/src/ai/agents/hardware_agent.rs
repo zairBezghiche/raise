@@ -4,8 +4,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::intent_classifier::EngineeringIntent;
-use super::{Agent, AgentContext, AgentResult, CreatedArtifact}; // <--- Imports
+use super::{Agent, AgentContext, AgentResult, CreatedArtifact};
 use crate::ai::llm::client::LlmBackend;
+// IMPORT NLP
+use crate::ai::nlp::entity_extractor;
 
 #[derive(Default)]
 pub struct HardwareAgent;
@@ -17,12 +19,7 @@ impl HardwareAgent {
 
     fn determine_category(&self, name: &str, element_type: &str) -> &'static str {
         let keywords = format!("{} {}", name, element_type).to_lowercase();
-        if keywords.contains("fpga")
-            || keywords.contains("asic")
-            || keywords.contains("pcb")
-            || keywords.contains("carte")
-            || keywords.contains("soc")
-        {
+        if keywords.contains("fpga") || keywords.contains("asic") || keywords.contains("pcb") {
             "Electronics"
         } else {
             "Infrastructure"
@@ -36,16 +33,26 @@ impl HardwareAgent {
         element_type: &str,
     ) -> Result<serde_json::Value> {
         let category = self.determine_category(name, element_type);
-        let specific_instruction = if category == "Electronics" {
-            "Contexte: Design Électronique/Hardware. Mentionne: Logic Cells, I/O, Consommation."
+        let instruction = if category == "Electronics" {
+            "Contexte: Design Électronique."
         } else {
-            "Contexte: Infrastructure IT. Mentionne: CPU, RAM, Storage, OS."
+            "Contexte: Infrastructure IT."
         };
 
-        let system_prompt = "Tu es un Architecte Matériel (Arcadia PA). Génère JSON.";
+        // NLP
+        let entities = entity_extractor::extract_entities(name);
+        let mut nlp_hint = String::new();
+        if !entities.is_empty() {
+            nlp_hint.push_str("\n[COMPOSANTS]:\n");
+            for entity in entities {
+                nlp_hint.push_str(&format!("- \"{}\"\n", entity.text));
+            }
+        }
+
+        let system_prompt = "Tu es un Architecte Matériel. Génère JSON.";
         let user_prompt = format!(
-            "Crée un objet JSON pour un Noeud Physique (PA). Nom: {}. Type: {}. {}. Format: {{ \"name\": \"str\", \"specs\": {{}} }}",
-            name, element_type, specific_instruction
+            "Crée un Noeud Physique (PA). Nom: {}. Type: {}. {}. {} Format: {{ \"name\": \"str\", \"specs\": {{}} }}",
+            name, element_type, instruction, nlp_hint
         );
 
         let response = ctx
@@ -83,7 +90,6 @@ impl Agent for HardwareAgent {
         ctx: &AgentContext,
         intent: &EngineeringIntent,
     ) -> Result<Option<AgentResult>> {
-        // <--- Signature
         match intent {
             EngineeringIntent::CreateElement {
                 layer,

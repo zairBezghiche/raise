@@ -12,6 +12,9 @@ use genaptitude::commands::{
     ai_commands, blockchain_commands, codegen_commands, cognitive_commands, genetics_commands,
     json_db_commands, model_commands, traceability_commands, utils_commands, workflow_commands,
 };
+// Import du State IA
+use genaptitude::commands::ai_commands::AiState;
+
 use genaptitude::json_db::storage::{JsonDbConfig, StorageEngine};
 
 // Import des structures d'état
@@ -19,8 +22,12 @@ use genaptitude::commands::workflow_commands::WorkflowStore;
 use genaptitude::model_engine::types::ProjectModel;
 use genaptitude::AppState; // Contient std::sync::Mutex<ProjectModel>
 
+// Imports pour l'initialisation Background de l'IA
+use genaptitude::ai::orchestrator::AiOrchestrator;
+use genaptitude::model_engine::loader::ModelLoader;
+
 fn main() {
-    // Initialisation des logs & config via utils (optionnel ici si fait dans lib.rs, mais sûr)
+    // Initialisation des logs & config via utils
     genaptitude::utils::init_logging();
     let _ = genaptitude::utils::AppConfig::init();
 
@@ -50,18 +57,67 @@ fn main() {
 
             // --- 2. CONFIGURATION ÉTATS GLOBAUX ---
 
-            // A. AppState (Modèle Arcadia) -> Utilise std::sync::Mutex
+            // A. AppState (Modèle Arcadia pour l'UI Traceability)
             app.manage(AppState {
                 model: Mutex::new(ProjectModel::default()),
             });
 
-            // B. WorkflowStore (Moteur Workflow) -> Utilise AsyncMutex (Tokio)
-            // C'est ici que l'alias est utilisé pour éviter le conflit
+            // B. WorkflowStore
             app.manage(AsyncMutex::new(WorkflowStore::default()));
 
-            // C. Blockchain (Clients)
+            // C. Blockchain
             let app_handle = app.handle();
             genaptitude::blockchain::ensure_innernet_state(app_handle, "default");
+
+            // --- 3. INITIALISATION IA (BACKGROUND) ---
+
+            // D. On enregistre l'état IA vide (Mutex Async)
+            app.manage(AiState::new(None));
+
+            let app_handle_clone = app.handle().clone();
+
+            // E. Lancement du chargement asynchrone
+            tauri::async_runtime::spawn(async move {
+                // Récupération des variables d'env (chargées par dotenv précédemment dans utils::AppConfig)
+                let llm_url = env::var("GENAPTITUDE_LOCAL_URL")
+                    .unwrap_or_else(|_| "http://127.0.0.1:8081".to_string());
+                let qdrant_port =
+                    env::var("PORT_QDRANT_GRPC").unwrap_or_else(|_| "6334".to_string());
+                let qdrant_url = format!("http://127.0.0.1:{}", qdrant_port);
+
+                println!("🤖 [IA] Démarrage du processus d'initialisation...");
+
+                // On récupère le StorageEngine déjà managé
+                // Note : .state() retourne un State<T>, on utilise inner() pour accéder à l'objet réel
+                let storage_state = app_handle_clone.state::<StorageEngine>();
+                // On clone le moteur pour qu'il soit 'Send' vers le thread bloquant
+                let storage_engine = storage_state.inner().clone();
+
+                // Chargement du modèle (Lourd -> spawn_blocking)
+                // TODO: Rendre "un2" et "_system" configurables via .env ou UI
+                let model_res = tauri::async_runtime::spawn_blocking(move || {
+                    let loader = ModelLoader::from_engine(&storage_engine, "un2", "_system");
+                    loader.load_full_model()
+                })
+                .await;
+
+                match model_res {
+                    Ok(Ok(model)) => {
+                        println!("🤖 [IA] Modèle chargé. Connexion à Qdrant & LLM...");
+                        match AiOrchestrator::new(model, &qdrant_url, &llm_url).await {
+                            Ok(orchestrator) => {
+                                let ai_state = app_handle_clone.state::<AiState>();
+                                let mut guard = ai_state.lock().await;
+                                *guard = Some(orchestrator);
+                                println!("✅ [IA] GenAptitude est PRÊTE (Mémoire + RAG + Modèle)");
+                            }
+                            Err(e) => eprintln!("❌ [IA] Erreur Connexion Orchestrator : {}", e),
+                        }
+                    }
+                    Ok(Err(e)) => eprintln!("❌ [IA] Erreur Chargement Modèle JSON-DB : {}", e),
+                    Err(e) => eprintln!("❌ [IA] Erreur Thread Panicked : {}", e),
+                }
+            });
 
             Ok(())
         })
@@ -88,6 +144,7 @@ fn main() {
             model_commands::load_project_model,
             // --- IA & AGENTS ---
             ai_commands::ai_chat,
+            ai_commands::ai_reset, // <--- AJOUT COMMANDE RESET
             // --- BLOCKCHAIN ---
             blockchain_commands::fabric_ping,
             blockchain_commands::fabric_submit_transaction,

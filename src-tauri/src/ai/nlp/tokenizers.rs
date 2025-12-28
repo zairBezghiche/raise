@@ -1,33 +1,33 @@
-use tiktoken_rs::cl100k_base;
+use crate::ai::nlp::preprocessing;
 
-/// Estime le nombre de tokens dans une chaîne de caractères.
-/// Utilise l'encodage `cl100k_base` (standard GPT-4/Mistral).
-pub fn count_tokens(text: &str) -> usize {
-    // En cas d'erreur d'init du tokenizer (rare), on fallback sur une heuristique
-    // Heuristique : ~4 caractères par token en moyenne pour l'anglais/code, un peu moins en FR.
-    match cl100k_base() {
-        Ok(bpe) => bpe.encode_with_special_tokens(text).len(),
-        Err(_) => text.len() / 4,
-    }
+/// Transforme une phrase brute en vecteur de mots-clés normalisés.
+/// Utilisé pour la recherche (Search).
+pub fn tokenize(text: &str) -> Vec<String> {
+    let normalized = preprocessing::normalize(text);
+    let cleaned = preprocessing::remove_stopwords(&normalized);
+
+    cleaned.split_whitespace().map(|s| s.to_string()).collect()
 }
 
-/// Tronque un texte pour qu'il ne dépasse pas un nombre max de tokens.
-/// Utile pour limiter l'historique de conversation.
-pub fn truncate_tokens(text: &str, max_tokens: usize) -> String {
-    let bpe = match cl100k_base() {
-        Ok(b) => b,
-        Err(_) => return text.chars().take(max_tokens * 4).collect(),
-    };
+/// Tronque une chaîne de caractères pour ne pas dépasser un nombre approximatif de tokens.
+/// Utilisé par le Retriever pour limiter la taille du contexte envoyé au LLM.
+///
+/// NOTE : Ici, on utilise une heuristique simple (1 "mot" = 1 token) pour éviter
+/// d'embarquer une dépendance lourde comme HuggingFace Tokenizers.
+/// C'est suffisant pour du RAG local.
+pub fn truncate_tokens(text: &str, limit: usize) -> String {
+    // 1. On découpe en mots (basé sur les espaces)
+    let words: Vec<&str> = text.split_whitespace().collect();
 
-    let tokens = bpe.encode_with_special_tokens(text);
-    if tokens.len() <= max_tokens {
+    // 2. Si on est en dessous de la limite, on renvoie tout
+    if words.len() <= limit {
         return text.to_string();
     }
 
-    // On décode uniquement les N premiers tokens
-    let kept_tokens = &tokens[..max_tokens];
-    bpe.decode(kept_tokens.to_vec())
-        .unwrap_or_else(|_| text.to_string())
+    // 3. Sinon, on garde les 'limit' premiers mots et on recolle
+    // On ajoute "..." pour indiquer la coupure
+    let truncated = words[0..limit].join(" ");
+    format!("{} ...[tronqué]", truncated)
 }
 
 #[cfg(test)]
@@ -35,18 +35,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_token_count() {
-        let text = "Bonjour GenAptitude";
-        let count = count_tokens(text);
-        // "Bonjour" + " Gen" + "Apt" + "itude" ou similaire
-        assert!(count > 0 && count < 10);
+    fn test_tokenize_simple() {
+        let input = "Le chat mange";
+        // "le" est stopword -> viré. "chat", "mange" -> gardés.
+        assert_eq!(tokenize(input), vec!["chat", "mange"]);
     }
 
     #[test]
-    fn test_truncate() {
-        let text = "Ceci est un texte très long qui doit être coupé.";
-        let truncated = truncate_tokens(text, 2);
-        // Devrait garder environ 2 mots/bouts
-        assert!(count_tokens(&truncated) <= 2);
+    fn test_truncate_tokens_limit() {
+        let text = "Ceci est un test de troncature très long";
+        // On garde 3 mots : "Ceci est un"
+        let res = truncate_tokens(text, 3);
+        assert!(res.contains("Ceci est un"));
+        assert!(res.contains("..."));
+        assert!(!res.contains("troncature"));
+    }
+
+    #[test]
+    fn test_truncate_tokens_no_limit() {
+        let text = "Court texte";
+        let res = truncate_tokens(text, 100);
+        assert_eq!(res, "Court texte");
     }
 }

@@ -1,119 +1,144 @@
-# Module Low-Level LLM 🧠
+# Module `ai::llm` - Infrastructure Bas Niveau LLM
 
-Ce module est la **couche d'abstraction bas niveau** responsable de la communication avec les modèles d'intelligence artificielle.
-Il isole le reste de l'application Rust de la complexité des APIs tierces (OpenAI format, Google REST API) et assure la résilience du service.
+Ce module constitue la couche d'infrastructure (**Low-Level Layer**) de GenAptitude pour la communication avec les modèles de langage. Il fournit la "tuyauterie" technique permettant aux Agents de fonctionner sans se soucier de la complexité réseau ou du formatage des réponses.
 
 ---
 
-## 🏗️ Architecture & Flux de Données
+## 📂 Structure du Module
 
-Le client implémente un pattern **"Smart Fallback"**. Il tente toujours de privilégier l'inférence locale (confidentialité, coût) mais bascule automatiquement et silencieusement vers le Cloud en cas d'indisponibilité.
+Voici l'organisation physique des fichiers de ce module :
 
 ```text
-    [ Application Rust (Agents) ]
-                 |
-                 v
-      +---------------------+
-      |      LlmClient      |
-      | (Interface Unifiée) |
-      +---------------------+
-                 |
-        1. Tentative LOCAL
-                 |
-                 v
-      /---------------------\
-      |   API Locale (HTTP) | <--- Ping / Timeout (2s)
-      \---------------------/
-         |             |
-     [Succès]      [Échec / 404]
-         |             |
-         |             v
-         |     2. Bascule CLOUD (Fallback)
-         |             |
-         |             v
-         |    /-----------------\
-         |    |  Google Gemini  | (REST API v1beta)
-         |    \-----------------/
-         |             |
-         |             |
-         v             v
-      +---------------------+
-      |   Réponse Textuelle |
-      +---------------------+
+src-tauri/src/ai/llm/
+├── mod.rs               # Point d'entrée : expose les sous-modules publics.
+├── client.rs            # Client HTTP : gère la connexion (Ollama/Gemini) et le Fallback.
+├── prompts.rs           # Personas : contient les constantes des "System Prompts".
+├── response_parser.rs   # Nettoyeur : extrait le JSON/Code des réponses brutes.
+└── tests.rs             # Validation : tests unitaires et d'intégration.
+
 ```
 
 ---
 
-## 📂 Structure des Fichiers
+## 📊 Architecture & Flux de Données
 
-| Fichier              | Responsabilité                                                                                                                                        |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`client.rs`**      | **Cœur du module**. Implémente `LlmClient`, la gestion HTTP (reqwest), la logique de fallback et le nettoyage des noms de modèles (`models/` prefix). |
-| `response_parser.rs` | _(Utilitaire)_ Fonctions pour extraire et valider le JSON depuis les blocs de code Markdown (```json) renvoyés par les LLMs.                          |
-| `prompts.rs`         | _(Utilitaire)_ Bibliothèque de prompts système (System Prompts) pour spécialiser l'IA (Expert Rust, Expert SQL, Architecte Arcadia).                  |
-| `mod.rs`             | Point d'entrée du module, expose les types publics.                                                                                                   |
-| `tests.rs`           | Tests d'intégration pour vérifier la connexion aux backends (Local et Cloud) et le parsing.                                                           |
+Le système implémente une stratégie **"Local First"** avec un mécanisme de **Nettoyage Automatique** des réponses.
 
----
+### Schéma du Flux (Pipeline)
 
-## 🚀 Fonctionnalités Clés
+```text
+    +-----------+                                     +-----------------+
+    |   AGENT   |  >> 1. Envoi du Prompt (Persona) >> |   LLM CLIENT    |
+    +-----------+                                     +-----------------+
+          ^                                                    |
+          |                                          (Tentative Local : OLLAMA)
+          |                                                    v
+    (Retour JSON)                                    [ ECHEC ? -> FALLBACK ]
+          |                                                    |
+          |                                           (Tentative Cloud : GEMINI)
+          |                                                    |
+    +-----------+                                              |
+    |   PARSER  |  << 3. Nettoyage (No Markdown) <<   (Réponse Brute)
+    +-----------+
 
-### 1. Smart Fallback (Résilience)
+```
 
-Le système est conçu pour le développement hybride :
+### Description des Étapes
 
-- **Mode Local (`LocalLlama`)** : Cible par défaut (ex: `localhost:8080/v1/...`). Idéal pour le dev hors-ligne ou la confidentialité.
-- **Mode Cloud (`GoogleGemini`)** : S'active si le serveur local ne répond pas sous 2 secondes. Utilise l'API Google Generative Language.
+1. **Conditionnement (`prompts.rs`) :** L'Agent sélectionne une personnalité (ex: `SYSTEM_AGENT_PROMPT`) pour orienter l'expertise du modèle.
+2. **Transport & Résilience (`client.rs`) :**
 
-### 2. Normalisation des Modèles Gemini
+- Le client tente d'abord d'interroger le modèle local (port 11434 ou 8080).
+- Si le serveur local ne répond pas, il bascule automatiquement sur l'API Google Gemini (si la clé est configurée).
 
-Le client gère automatiquement les incohérences de nommage de l'API Google.
+3. **Nettoyage (`response_parser.rs`) :**
 
-- Entrée config : `models/gemini-1.5-flash` ou `gemini-1.5-flash`
-- Traitement interne : Nettoie le préfixe `models/` pour construire une URL API valide (`.../models/gemini-1.5-flash:generateContent`).
-
-### 3. Typage Fort
-
-Utilise des structures Rust (`struct`) pour sérialiser/désérialiser proprement les requêtes JSON, garantissant que les payloads envoyés à OpenAI ou Google sont toujours conformes.
-
----
-
-## ⚙️ Configuration
-
-Le client est instancié avec des paramètres provenant généralement des variables d'environnement (`.env`) chargées par le binaire principal.
-
-| Variable Env             | Usage                                                              |
-| ------------------------ | ------------------------------------------------------------------ |
-| `GENAPTITUDE_MODEL_NAME` | Nom du modèle (ex: `gemini-2.0-flash-001`). Le préfixe est géré.   |
-| `GENAPTITUDE_GEMINI_KEY` | Clé API Google (commence par `AIza...`).                           |
-| `GENAPTITUDE_LOCAL_URL`  | URL du serveur d'inférence local (ex: `http://localhost:1234/v1`). |
+- La réponse brute arrive souvent polluée (ex: "Voici le JSON : `json ... `").
+- Le parser extrait chirurgicalement les données utiles (JSON ou Code) avant de les renvoyer à l'Agent.
 
 ---
 
-## 💻 Exemple d'Utilisation (Rust)
+## 💻 Exemples d'Utilisation (Rust)
 
-```rust
-use crate::ai::llm::client::{LlmClient, LlmBackend};
+Voici comment utiliser les briques de ce module pour construire un Agent.
 
-async fn example() {
-    // 1. Instanciation
-    let client = LlmClient::new(
-        "http://localhost:1234",
-        "AIzaSy...",
-        Some("gemini-1.5-flash".to_string())
+### Cas 1 : Analyse d'Intention (Retour JSON)
+
+Ce cas est utilisé par le `IntentClassifier` pour router la demande.
+
+````rust
+use crate::ai::llm::{client, prompts, response_parser};
+
+async fn classify_user_request(user_input: &str) -> Result<serde_json::Value, String> {
+    // 1. Initialisation du Client (souvent fait au démarrage de l'app)
+    // On cible le port par défaut d'Ollama
+    let llm_client = client::LlmClient::new("http://localhost:11434", "optional_api_key", None);
+
+    // 2. Construction du Prompt avec le Persona "Routeur"
+    let full_prompt = format!(
+        "{}\n\nUSER REQUEST: {}",
+        prompts::INTENT_CLASSIFIER_PROMPT,
+        user_input
     );
 
-    // 2. Appel (Le fallback est géré en interne si LocalLlama est choisi)
-    let reponse = client.ask(
-        LlmBackend::LocalLlama, // Tente le local d'abord
-        "Tu es un expert Rust.", // System Prompt
-        "Génère une struct Client." // User Prompt
-    ).await;
+    // 3. Envoi de la requête (Le client gère le réseau et le fallback)
+    let raw_response = llm_client.ask_raw(&full_prompt).await
+        .map_err(|e| format!("Erreur LLM: {}", e))?;
 
-    match reponse {
-        Ok(text) => println!("Réponse IA : {}", text),
-        Err(e) => eprintln!("Erreur critique : {}", e),
-    }
+    // 4. Nettoyage et Parsing JSON
+    // Cela gère les cas où l'IA répond "Voici le JSON : ```json { ... } ```"
+    let json_data = response_parser::extract_json(&raw_response)
+        .map_err(|e| format!("Erreur Parsing: {}", e))?;
+
+    // On retourne l'objet JSON propre
+    Ok(json_data)
 }
+
+````
+
+### Cas 2 : Génération de Code (Retour Texte Brut)
+
+Ce cas est utilisé par le `SoftwareAgent` pour écrire des fichiers Rust.
+
+````rust
+use crate::ai::llm::{client, prompts, response_parser};
+
+async fn generate_rust_code(task_description: &str) -> Result<String, String> {
+    let llm_client = client::LlmClient::new("http://localhost:11434", "", None);
+
+    // On utilise le Persona "Software Engineer"
+    let prompt = format!("{}\nTask: {}", prompts::SOFTWARE_AGENT_PROMPT, task_description);
+
+    let raw_response = llm_client.ask_raw(&prompt).await
+        .map_err(|e| e.to_string())?;
+
+    // Ici, on ne veut pas parser du JSON, mais extraire le bloc de code
+    // Cette fonction retire le texte "Voici le code" et les balises ```rust
+    let clean_code = response_parser::extract_code_block(&raw_response);
+
+    Ok(clean_code)
+}
+
+````
+
+---
+
+## ⚙️ Configuration Requise
+
+Variables d'environnement (fichier `.env` ou contexte d'exécution) :
+
+| Variable                    | Description                                                 |
+| --------------------------- | ----------------------------------------------------------- |
+| `GENAPTITUDE_LLM_LOCAL_URL` | URL du serveur local (défaut : `http://localhost:11434/v1`) |
+| `GENAPTITUDE_GEMINI_KEY`    | Clé API de secours (Google AI Studio)                       |
+
+---
+
+## ✅ Validation
+
+Pour vérifier que ce module fonctionne correctement (Parser + Prompts + Client), exécutez la suite de tests dédiée :
+
+```bash
+cargo test ai::llm
 
 ```

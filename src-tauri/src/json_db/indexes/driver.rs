@@ -99,7 +99,7 @@ impl IndexMap for BTreeMap<String, Vec<String>> {
     }
 }
 
-// --- Logique I/O Générique ---
+// --- Logique I/O Générique (Version Bincode 2.0.0-rc.3) ---
 
 /// Charge un index depuis le disque (Format Binaire Bincode)
 pub fn load<T: IndexMap>(path: &Path) -> Result<T> {
@@ -109,11 +109,11 @@ pub fn load<T: IndexMap>(path: &Path) -> Result<T> {
 
     let content = fs::read(path).with_context(|| format!("Lecture index {}", path.display()))?;
 
-    // CORRECTION BINCODE 2 : Utilisation de decode_from_slice avec configuration standard
-    let records: Vec<IndexRecord> =
+    // CORRECTION : Utilisation de bincode::serde::decode_from_slice (API v2)
+    // Retourne un tuple (valeur, taille_lue), on prend .0
+    let (records, _): (Vec<IndexRecord>, usize) =
         bincode::serde::decode_from_slice(&content, bincode::config::standard())
-            .with_context(|| format!("Désérialisation Bincode index {}", path.display()))?
-            .0;
+            .with_context(|| format!("Désérialisation Bincode index {}", path.display()))?;
 
     Ok(T::from_records(records))
 }
@@ -122,7 +122,7 @@ pub fn load<T: IndexMap>(path: &Path) -> Result<T> {
 pub fn save<T: IndexMap>(path: &Path, index: &T) -> Result<()> {
     let records = index.to_records();
 
-    // CORRECTION BINCODE 2 : Utilisation de encode_to_vec avec configuration standard
+    // CORRECTION : Utilisation de bincode::serde::encode_to_vec (API v2)
     let encoded: Vec<u8> = bincode::serde::encode_to_vec(&records, bincode::config::standard())?;
 
     atomic_write_binary(path, &encoded)
