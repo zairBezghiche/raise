@@ -41,7 +41,7 @@ Thumbs.db
 
 # Tauri
 src-tauri/target
-src-tauri/Cargo.lock
+
 
 # Cache IA (Modèles FastEmbed)
 src-tauri/.fastembed_cache/

@@ -1,4 +1,4 @@
-name: CI/CD GenAptitude
+name: CI/CD RAISE
 
 on:
   push:
@@ -87,7 +87,7 @@ jobs:
         run: cargo install cargo-cyclonedx
       
       - name: Generate Rust SBOM
-        run: cargo cyclonedx --format json --all --output "sbom-rust.cdx.json"
+        run: cargo cyclonedx --format json --all > sbom-rust.cdx.json
 
       # SBOM JS & Files (Syft) - GitHub a une action officielle pour ça !
       - name: Generate Filesystem SBOM (Syft)
