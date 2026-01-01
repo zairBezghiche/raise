@@ -365,9 +365,9 @@ impl<'a> CollectionsManager<'a> {
             .write_document(&self.space, &self.db, collection, id, doc)?;
         self.add_item_to_index(collection, id)?;
         let mut idx_mgr = IndexManager::new(self.storage, &self.space, &self.db);
-        if let Err(e) = idx_mgr.index_document(collection, doc) {
+        if let Err(_e) = idx_mgr.index_document(collection, doc) {
             #[cfg(debug_assertions)]
-            eprintln!("⚠️ Indexation secondaire échouée: {}", e);
+            eprintln!("⚠️ Indexation secondaire échouée: {}", _e);
         }
         Ok(())
     }

@@ -1,10 +1,10 @@
-# Contributing to GenAptitude
+# Contributing to RAISE
 
 <p align="center">
-  <img src="src/assets/images/logo-white.svg" alt="GenAptitude Logo" width="150">
+  <img src="src/assets/images/logo-white.svg" alt="RAISE Logo" width="150">
 </p>
 
-Thank you for your interest in **GenAptitude**.
+Thank you for your interest in **RAISE** (Rationalized Advanced Intelligence System Engine).
 
 By contributing to this project, you are helping build a **Digital Commons Infrastructure** for European critical engineering. We value sovereignty, rigor, and linguistic precision.
 
@@ -12,10 +12,10 @@ By contributing to this project, you are helping build a **Digital Commons Infra
 
 ## 🇪🇺 Contribution Channels by Language
 
-GenAptitude enforces a specific **Linguistic Strategy**:
+RAISE enforces a specific **Linguistic Strategy**:
 
-- **Code (Rust/JS)**: Strict English.
-- **Semantics (Models/Docs)**: Local language (French, German, etc.) is encouraged for precision.
+- **Code (Rust/JS/WASM)**: Strict English.
+- **Semantics (Models/Docs/Rules)**: Local language (French, German, etc.) is encouraged for precision in engineering domains.
 
 Please select your area of contribution:
 
@@ -32,10 +32,10 @@ Please select your area of contribution:
 
 Every contribution must respect the project's four pillars:
 
-1.  **Sovereignty (Local-First)**: We refuse mandatory cloud dependencies. Features must work offline or on Mesh networks. Do not submit code that phones home to opaque APIs.
-2.  **Transparency (Explainability)**: AI must not be a black box. Agents must be auditable (Logs, Blockchain, or Textual explanation).
+1.  **Sovereignty (Local-First)**: We refuse mandatory cloud dependencies. Features must work offline or on Air-Gapped networks.
+2.  **Rationalization (Explainability)**: AI must not be a black box. Agents must be auditable via the Traceability module (DO-178C compliant logs).
 3.  **Rigor (Validation)**: Targeted for critical industries (Aerospace, Defense). Tests are mandatory.
-4.  **Digital Commons**: We prioritize open standards (JSON-LD, W3C) over proprietary formats.
+4.  **Digital Commons**: We prioritize open standards (JSON-LD, W3C, ONNX) over proprietary formats.
 
 ---
 
@@ -51,8 +51,8 @@ Required: **Rust 1.88+**, **Node.js 20+**, and **WASM targets**.
 1.  **Fork** the repository.
 2.  Create a branch: `git checkout -b feat/my-feature`.
 3.  **Compile & Test** locally:
-    - Backend: `cargo test`
-    - Wasm: `cd src-wasm && ./build.sh`
+    - Backend: `cargo test` (Runs Rust units & integration tests)
+    - Wasm: `cd src-wasm && ./build.sh` (Compiles Cognitive Blocks)
     - Frontend: `npm run build`
 4.  Submit PR to `main` branch.
 
@@ -61,7 +61,7 @@ Required: **Rust 1.88+**, **Node.js 20+**, and **WASM targets**.
 We use **Conventional Commits** in English.
 Format: `type(scope): short description`
 
-- `feat`: New feature (e.g., `feat(ai): add mistral agent`)
+- `feat`: New feature (e.g., `feat(genetics): add optimization solver`)
 - `fix`: Bug fix (e.g., `fix(json_db): fix WAL corruption`)
 - `docs`: Documentation changes
 - `style`: Formatting, missing semi-colons, etc.
@@ -72,11 +72,15 @@ Format: `type(scope): short description`
 
 ## 🧩 Architecture & Code Standards
 
-### Backend (Rust)
+### Backend (Rust - `src-tauri`)
 
+- **Architecture Layers**: Respect the clean separation (API -> Service -> Core Domain).
 - **Idiomatic Rust**: Use `clippy` before committing: `cargo clippy`.
 - **Error Handling**: No `unwrap()` in production code. Use Pattern Matching or `?`.
-- **JSON-DB**: Any data structure change requires schema validation updates.
+
+### Cognitive Blocks (WASM - `src-wasm`)
+
+- **Performance**: Minimize memory allocation loops. These modules run in the UI thread context.
 
 ### Frontend (React/TypeScript)
 

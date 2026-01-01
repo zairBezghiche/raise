@@ -1,6 +1,6 @@
 # Security Policy
 
-As a sovereign infrastructure for critical engineering ("Digital Commons"), **GenAptitude** takes security seriously. We encourage responsible disclosure of vulnerabilities.
+As a sovereign infrastructure for critical engineering ("Digital Commons"), **RAISE** takes security seriously. We encourage responsible disclosure of vulnerabilities.
 
 ## Supported Versions
 
@@ -15,11 +15,11 @@ Only the latest stable release is currently supported with security updates.
 
 **Do NOT report security vulnerabilities through public GitHub issues.**
 
-If you believe you have found a security vulnerability in the GenAptitude core (JSON-DB, Blockchain, AI Engine), please report it to our security team.
+If you believe you have found a security vulnerability in the RAISE core (JSON-DB, Traceability, AI Engine), please report it to our security team.
 
 ### How to Report
 
-Please email **security@genaptitude.com** with the subject `[SECURITY] Vulnerability Report`.
+Please email **security@raise.com** with the subject `[SECURITY] RAISE Vulnerability Report`.
 
 Include as much of the following information as possible:
 
@@ -37,9 +37,9 @@ We will acknowledge receipt of your vulnerability report within **48 hours** and
 
 ## Sovereignty & Data Privacy
 
-Since GenAptitude is a "Local-First" application:
+Since RAISE is a **Local-First** application:
 
-- We generally classify issues that leak data to external servers as **Critical**.
+- We generally classify issues that leak data to external servers as **Critical** (Sovereignty Breach).
 - Issues requiring physical access to the user's workstation are generally classified as **Medium/Low**, depending on the impact.
 
 Thank you for helping us make sovereign engineering safe.

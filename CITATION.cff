@@ -1,16 +1,17 @@
 cff-version: 1.2.0
 message: "If you use this software for engineering or research, please cite it as below."
-title: "GenAptitude: Sovereign Neuro-Symbolic AI Engineering Platform"
-abstract: "A workstation-first AI Use-Case Factory combining Generative AI with formal Model-Based Systems Engineering (Arcadia) for critical industries."
+title: "RAISE: Rationalized Advanced Intelligence System Engine"
+abstract: "A Workstation-First AI Use-Case Factory combining Neuro-Symbolic AI with formal Model-Based Systems Engineering (Arcadia) for critical industries. Powered by GenAptitude."
 authors:
   - family-names: "Bezghiche"
     given-names: "Zair"
     email: "zair@bezghiche.com"
 version: 0.1.0
-date-released: 2025-12-22
+date-released: 2026-01-01
 license: Apache-2.0
-repository-code: "https://github.com/votre-user/genaptitude"
+repository-code: "https://github.com/zairBezghiche/raise"
 keywords:
+  - "RAISE"
   - "MBSE"
   - "Arcadia"
   - "Neuro-Symbolic AI"

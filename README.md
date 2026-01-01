@@ -1,13 +1,34 @@
-# GenAptitude
+# RAISE
 
-**Workstation-First AI Use-Case Factory for Critical Engineering.**
-_Une Usine de Cas d'Usage IA Souveraine pour l'Ingénierie Critique._
+[![CI/CD RAISE](https://github.com/zairBezghiche/raise/actions/workflows/ci.yml/badge.svg)](https://github.com/zairBezghiche/raise/actions/workflows/ci.yml)
+
+**R.A.I.S.E. — Rationalized Advanced Intelligence System Engine.**
+_(Moteur de Système d'Intelligence Avancée Rationalisé)._
+
+> **The Workstation-First AI Use-Case Factory for Critical Engineering.** > _(Une Usine de Cas d'Usage IA Souveraine pour l'Ingénierie Critique)._
+
+---
+
+## 🏗️ Architecture Overview
+
+RAISE is designed as a **Local-First** system, ensuring that sensitive engineering data never leaves the workstation without explicit consent.
+
+[![RAISE Architecture](docs/en/architecture.svg)](docs/en/architecture.xml)
+
+### Key Architectural Pillars
+
+1.  **Workstation-First:** The diagram clearly shows the air-gapped boundary.
+2.  **3-Layer Backend:**
+    - **Decision (Row 1):** Neuro (AI), Orchestration, Symbolic.
+    - **Execution (Row 2):** Genetics, Generation, Traceability.
+3.  **WASM Accelerator:** Frontend intelligence for immediate feedback.
+4.  **Sovereign Infrastructure:** Local-first storage (JSON_DB, Blockchain, Traceability).
 
 ---
 
 ## 🇪🇺 European Union Sovereignty / Souveraineté Européenne
 
-GenAptitude is built to serve the industrial needs of the European Union, respecting local languages and data sovereignty.
+RAISE is built to serve the critical industrial needs of the European Union, guaranteeing **Data Sovereignty**, **Offline Capability**, and **Engineering Precision**.
 
 ### Available Documentation / Documentation Disponible
 
@@ -54,5 +75,5 @@ We aim to support engineering standards across all EU member states:
 ---
 
 <p align="center">
-  <img src="src/assets/images/logo-white.svg" alt="GenAptitude Logo" width="150">
+  <img src="src/assets/images/logo-white.svg" alt="RAISE Logo" width="150">
 </p>
